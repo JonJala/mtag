@@ -1,0 +1,6 @@
+LD Scores computed with ldsc and the following parameters
+- 1000 Genomes
+- sum r^2 taken over HapMap3 SNPs
+- HLA removed in 6.* but not in 6_old.*
+
+For use with the --w-ld-chr flag in the tutorial.
