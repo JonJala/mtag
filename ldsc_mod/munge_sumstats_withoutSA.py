@@ -227,11 +227,8 @@ def filter_frq(frq, args):
 def filter_alleles(a):
     '''Remove alleles that do not describe strand-unambiguous SNPs'''
     ### XXX EXCLUDE STR. AMBIG SNPS FROM FILTERING
-    incl_strand_ambiguous = False # always set to false
-    if incl_strand_ambiguous:
-        filter_flag = a.isin(sumstats_withoutSA.VALID_SNPS_STR_AMBIG)
-    else:
-        filter_flag = a.isin(sumstats_withoutSA.VALID_SNPS)
+    
+    filter_flag = a.isin(sumstats.VALID_SNPS)
 
     return filter_flag
 
@@ -416,6 +413,7 @@ def parse_flag_cnames(args):
     null_value = None
     if args.signed_sumstats:
         try:
+            print(args.signed_sumstats)
             cname, null_value = args.signed_sumstats.split(',')
             null_value = float(null_value)
             flag_cnames[clean_header(cname)] = 'SIGNED_SUMSTAT'
