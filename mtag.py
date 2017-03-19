@@ -161,7 +161,7 @@ def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
         merged_GWAS = merged_GWAS.merge(filtered_results, how='inner',left_on =args.snp_name,right_on='SNP',suffixes=('','_ss'))
         merged_GWAS = merged_GWAS[original_cols]
         logging.info('Completed munging (modified ldsc code) of Phenotype {}...'.format(p))
-        
+
     return merged_GWAS
 
 def _quick_mode(ndarray,axis=0):
@@ -277,12 +277,12 @@ def estimate_sigma(data_df, args):
     for p in range(args.P):
         logging.info('Preparing phenotype {} to estimate sigma'.format(p))
         single_colnames = [col for col in data_df.columns if col[-1] == str(p) or col in args.snp_name]
-        
+
         gwas_filtered_df = data_df[single_colnames]
         gwas_filtered_df= gwas_filtered_df.rename(columns={args.snp_name:args.snp_name+str(p)})
         gwas_filtered_df.columns = [col[:-1] for col in gwas_filtered_df.columns]
         ## remove phenotype index from names
-        
+
 
         save_paths_premunge[p] = args.munge_out + '_sigma_est_preMunge' +str(p) +'.csv'
         save_paths_postmunge[p] = args.munge_out + '_sigma_est_postMunge' + str(p)
@@ -378,9 +378,9 @@ def extract_gwas_sumstats(DATA, args):
     else:
         orig_case_cols = DATA.columns
         DATA.columns = map(str.upper, DATA.columns)
-        
+
         Fs = DATA.filter(regex='^/MAF|FREQ|FRQ/.').as_matrix()
-        
+
         args.maf_name = 'freq'
         DATA.columns = orig_case_cols
 
@@ -656,7 +656,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     input_phenotypes = [ '.../'+f[:16] if len(f) > 20 else f for f in args.GWAS_results.split(',')]
 
     for p in range(P):
-        summary_df.loc[p+1,'Phenotype'] = input_phenotypes[p+1]
+        summary_df.loc[p+1,'Phenotype'] = input_phenotypes[p]
         summary_df.loc[p+1, 'n (max)'] = np.max(Ns[:,p])
         summary_df.loc[p+1, '# SNPs used'] = len(Zs[:,p])
         summary_df.loc[p+1, 'GWAS mean chi^2'] = np.mean(np.square(Zs[:,p]))
@@ -683,7 +683,7 @@ def mtag(args):
 
 
     args.outdir = args.outdir if args.outdir[-1] in ['/','\\'] else args.outdir + '/'
-    
+
     if args.ld_ref_panel is None:
         mtag_path = re.findall(".*/",__file__)[0]
         args.ld_ref_panel = mtag_path+'ld_ref_panel/eur_w_ld_chr/'
@@ -716,7 +716,7 @@ def mtag(args):
 
     #3. Extract core information from combined GWAS data
     Zs , Ns ,Fs, res_temp, DATA = extract_gwas_sumstats(DATA,args)
-    
+
     #4. Estimate Sigma
     if args.residcov_path is None:
         args.sigma_hat = estimate_sigma(DATA, args)
@@ -726,6 +726,7 @@ def mtag(args):
     print(args.sigma_hat)
 
     #5. Estimate Omega
+
     if args.gencov_path is None:
         args.omega_hat = estimate_omega(args, Zs, Ns, args.sigma_hat)
     else:
