@@ -18,7 +18,7 @@ import traceback
 import copy
 import os
 
-incl_strand_ambiguous = True # modification for initial filtering in MTAG
+incl_strand_ambiguous = False # modification for initial filtering in MTAG
 
 _N_CHR = 22
 # complementary bases
@@ -30,11 +30,8 @@ STRAND_AMBIGUOUS = {''.join(x): x[0] == COMPLEMENT[x[1]]
                     for x in it.product(BASES, BASES)
                     if x[0] != x[1]}
 # SNPS we want to keep (pairs of alleles)
-if incl_strand_ambiguous:
-    VALID_SNPS= {x for x in map(lambda y: ''.join(y), it.product(BASES, BASES))
-              if x[0] != x[1] }
-else:
-    VALID_SNPS = {x for x in map(lambda y: ''.join(y), it.product(BASES, BASES))
+
+VALID_SNPS = {x for x in map(lambda y: ''.join(y), it.product(BASES, BASES))
               if x[0] != x[1] and not STRAND_AMBIGUOUS[x]}
 
 # T iff SNP 1 has the same alleles as SNP 2 (allowing for strand or ref allele flip).

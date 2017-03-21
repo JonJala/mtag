@@ -11,11 +11,9 @@ import time
 import os, gzip, bz2, re
 import logging
 from argparse import Namespace
-from ldsc_mod import munge_sumstats_withSA
+import munge_sumstats_withSA
 from ldsc_mod import munge_sumstats_withoutSA
 from ldsc_mod.ldscore import sumstats as sumstats_sig
-
-
 
 __version__ = '1.0.0'
 header =""
@@ -23,9 +21,9 @@ header = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n"
 header += "<>\n"
 header += "<> MTAG: Multitrait Analysis of GWAS \n"
 header += "<> Version: {}\n".format(str(__version__))
-header += "<> (C) 2017 Patrick Turley and Omeed Maghzian\n"
-header += "<> SSGAC\n"
-header += "<> GNU General Public License v3 (probably)\n"
+header += "<> (C) 2017 Omeed Maghzian, Raymond Walters, and Patrick Turley\n"
+header += "<> Harvard Univeristy Department of Economics / Broad Institute of MIT and Harvard\n"
+header += "<> GNU General Public License v3\n"
 header += "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n"
 
 pd.set_option('display.max_rows', 500)
@@ -48,7 +46,7 @@ def safely_create_folder(folder_path):
 ## Read / Write functions
 def _read_SNPlist(file_path, SNP_index):
 
-    # XXX Add more possible ways of reading SNPlists
+    # TODO Add more possible ways of reading SNPlists
     snplist = pd.read_csv(file_path, header=0, index_col=False)
     if SNP_index not in snplist.columns:
         raise ValueError("SNPlist read from {} does include --snp_name {} in its columns.".format(file_path, SNP_index))
@@ -58,7 +56,7 @@ def _read_GWAS_sumstats(GWAS_file):
     '''
     read GWAS summary statistics from file that is in one of the acceptable formats.
     '''
-    # XXX
+    # TODO read more file types
     return  pd.read_csv(GWAS_file, index_col=False, header=0,delim_whitespace=True)
 
 
@@ -137,27 +135,47 @@ def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
 
     if not os.path.isdir(args.munge_out):
         safely_create_folder(args.munge_out)
-
+    P=len(GWAS_filepaths)
 
     original_cols = merged_GWAS.columns
 
-    for p in range(len(GWAS_filepaths)):
+    # n_min maf_min info_min
+    if args.n_min is not None:
+        n_min_list = [float(x) for x in args.n_min.split(',')]
+        if len(n_min_list) == 1:
+            n_min_list = n_min_list * P
+    else:
+        n_min_list = [None]*P
+
+    if args.maf_min is not None:
+        maf_min_list = [float(x) for x in args.maf_min.split(',')]
+        if len(maf_min_list) == 1:
+            maf_min_list = maf_min_list * P
+    else:
+        maf_min_list = [None]*P
+
+    if args.info_min is not None:
+        info_min_list = [float(x) for x in args.info_min.split(',')]
+        if len(info_min_list) == 1:
+            info_min_list = info_min_list * P
+    else:
+        info_min_list = [None]*P
+
+
+
+    for p in range(P):
 
         merge_alleles=None
 
         # Default minimum n is the same as it is for munge sumstats
-        n_min = args.n_min
-
         ignore_list = ""
         if args.info_min is None:
             ignore_list += "info"
 
-
-        argnames = Namespace(sumstats=GWAS_filepaths[p],N=None,N_cas=None,N_con=None,out=args.munge_out+'filtering',maf_min=args.maf_min, info_min =args.info_min,daner=False, no_alleles=True, merge_alleles=merge_alleles,n_min=n_min,chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.maf_name,signed_sumstats=args.z_name,info=args.info_min,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
+        argnames = Namespace(sumstats=GWAS_filepaths[p],N=None,N_cas=None,N_con=None,out=args.munge_out+'filtering',maf_min=maf_min_list[p], info_min =info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=n_min_list[p],chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.maf_name,signed_sumstats=args.z_name,info=args.info_min,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
 
         # filtering done with a modified version of munge sumstats that allows for strand ambiguous SNPs. This is a different file than the munge sumstats used in preparation to estimate sigma hat.
-        filtered_results = munge_sumstats_withSA.munge_sumstats(argnames)
-
+        filtered_results = munge_sumstats_withSA.munge_GWASinput(argnames)
         merged_GWAS = merged_GWAS.merge(filtered_results, how='inner',left_on =args.snp_name,right_on='SNP',suffixes=('','_ss'))
         merged_GWAS = merged_GWAS[original_cols]
         logging.info('Completed munging (modified ldsc code) of Phenotype {}...'.format(p))
@@ -197,12 +215,12 @@ def _quick_mode(ndarray,axis=0):
 
 def load_and_merge_data(args):
     '''
-    XXX Add documentation
+    TODO Add description
     Parses file names from MTAG command line arguments and returns the relevant used for method.
     '''
     args.munge_out = args.outdir+'ldsc_temp/'
 
-    GWAS_input_files = args.GWAS_results.split(',')
+    GWAS_input_files = args.sumstats.split(',')
     P = len(GWAS_input_files)  # of phenotypes
     GWAS_d = dict()
     for p, GWAS_input in enumerate(GWAS_input_files):
@@ -211,9 +229,7 @@ def load_and_merge_data(args):
 
 
     ## Merge summary statistics of GWA studies by snp index
-    # SNP_index = ['chr', 'bpos'] if args.cptid else ['snpid']
-    #SNP_index = 'cptid' if args.cptid else ['snpid'
-
+    
     for p in range(P):
         GWAS_d[p] =GWAS_d[p].rename(columns={x+str(p):x for x in GWAS_d[p].columns})
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
@@ -222,9 +238,8 @@ def load_and_merge_data(args):
         else:
             GWAS_all = GWAS_all.merge(GWAS_d[p], how = 'inner', on=args.snp_name)
 
-            # XXX Perform checks on consistency of data across summary statistics
 
-            # A. Check if reference alleles swtiched
+            # TODO Check if reference alleles flipped
     logging.info('... Merge of GWAS summary statistics complete. Number of SNPs:\t {}'.format(len(GWAS_all)))
 
     GWAS_orig_cols = GWAS_all.columns
@@ -288,12 +303,12 @@ def estimate_sigma(data_df, args):
         save_paths_postmunge[p] = args.munge_out + '_sigma_est_postMunge' + str(p)
         gwas_filtered_df.to_csv(save_paths_premunge[p], sep='\t',index=False)
 
-        args_munge_sigma = Namespace(sumstats=save_paths_premunge[p],N=None,N_cas=None,N_con=None,out=save_paths_postmunge[p],maf_min=args.maf_min, info_min =args.info_min,daner=False, no_alleles=True, merge_alleles=None,n_min=0,chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.maf_name,signed_sumstats=args.z_name+',0',info=args.info_min,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
+        args_munge_sigma = Namespace(sumstats=save_paths_premunge[p],N=None,N_cas=None,N_con=None,out=save_paths_postmunge[p],maf_min=args.maf_min, info_min =args.info_min,daner=False, no_alleles=False, merge_alleles=None,n_min=0,chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.maf_name,signed_sumstats=args.z_name+',0',info=args.info_min,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
         munge_sumstats_withoutSA.munge_sumstats(args_munge_sigma)
 
     # run ldsc
     for p1 in range(args.P):
-        for p2 in range (p1,args.P): #XXX make p1->p1+1
+        for p2 in range (p1,args.P): #TODO make p1->p1+1 and use h2 estimates
             if (p1 == p2 and args.no_overlap) or not args.no_overlap:
                 h2_files = None
                 rg_files = '{X}.sumstats.gz,{Y}.sumstats.gz'.format(X=save_paths_postmunge[p1],Y=save_paths_postmunge[p2])
@@ -307,6 +322,36 @@ def estimate_sigma(data_df, args):
 
 
     return sigma_hat
+
+def _posDef_adjustment(mat, scaling_factor=0.99,max_it=1000):
+    '''
+    Checks whether the provided is pos semidefinite. If it is not, then it performs the the adjustment procedure descried in 1.2.2 of the Supplementary Note
+
+    scaling_factor: the multiplicative factor that all off-diagonal elements of the matrix are scaled by in the second step of the procedure.
+    max_it: max number of iterations set so that 
+    '''
+    assert mat.ndim == 2
+    assert mat.shape[0] == mat.shape[1]
+    is_pos_semidef = lambda m: np.all(np.linalg.eigvals(m) >= 0)
+    if is_pos_semidef(mat):
+        return mat
+    else:
+        logging.info('Sigma matrix is not positive definite, performing adjustment..')
+        P = mat.shape[0]
+        for i in range(P):
+            for j in range(i,P):
+                if np.abs(mat[i,j]) > np.sqrt(mat[i,i] * mat[j,j]):
+                    mat[i,j] = np.sign(mat[i,j])*np.sqrt(mat[i,i] * mat[j,j])
+        n=0
+        while not is_pos_semidef(mat) and n < max_it:
+            dg = np.diag(mat)
+            mat = scaling_factor * mat 
+            mat[np.diag_indices(P)] = dg
+        if n == max_it:
+            logging.info('Warning: max number of iterations reached in adjustment procedure. Sigma matrix used is still non-positive-definite.')
+        return mat
+
+
 
 def extract_gwas_sumstats(DATA, args):
     '''
@@ -330,19 +375,28 @@ def extract_gwas_sumstats(DATA, args):
 
     N_passFilter = np.ones(len(Ns), dtype=bool)
 
+    N_nearMode = np.ones_like(Ns, dtype=bool)
     if args.homogNs_frac is not None or args.homogNs_dist is not None:
         N_modes, _ = _quick_mode(Ns)
         assert len(N_modes) == Ns.shape[1]
         if args.homogNs_frac is not None:
-            logging.info('--homogNs_frac {} is on, filtering SNP ...'.format(args.homogNs_frac))
+            logging.info('--homogNs_frac {} is on, filtering SNPs ...'.format(args.homogNs_frac))
             assert args.homogNs_frac >= 0.
-
-            N_nearMode = (Ns - N_modes) / N_modes <= args.homogNs_frac
+            homogNs_frac_list = [float(x) for x in args.homogNs_frac.split(',')]
+            if len(homogNs_frac_list) == 1:
+                homogNs_frac_list = homogNs_frac_list*args.P
+            for p in range(args.P):
+                N_nearMode[:,p] = np.abs((Ns[:,p] - N_modes[p])) / N_modes[p] <= homogNs_frac_list[p]
         elif args.homogNs_dist is not None:
-            assert args.homogNs_dist >=0
-            N_nearMode =  np.abs(Ns - N_modes) <= args.homogNs_dist
+            logging.info('--homogNs_dist {} is on, filtering SNPs ...'.format(args.homogNs_dst))
+            homogNs_dist_list = [float(x) for x in args.homogNs_dist.split(',')]
+            if len(homogNs_dist_list) == 1:
+                homogNs_dist_list = homogNs_frac_list*args.P
+            assert np.all(np.array(homogNs_dist_list) >=0)
+            for p in range(args.P):
+                N_nearMode[:,p] =  np.abs(Ns[:,p] - N_modes[:,p]) <= args.homogNs_dist[:,p]
         else:
-            raise ValueError('Cannot specif both --homogNs_frac and --homogNs_dist at the same time.')
+            raise ValueError('Cannot specify both --homogNs_frac and --homogNs_dist at the same time.')
 
         # report restrictions
         mode_restrictions = 'Sample size restrictions close to mode:\n'
@@ -623,7 +677,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         out_df[args.z_name] = Zs[:,p]
         out_df[args.n_name] = Ns[:,p]
         out_df[args.maf_name] = Fs[:,p]
-        ### XXXX standardized or unstandardized beta
+
         if args.std_betas:
             weights = np.ones(M,dtype=float)
         else:
@@ -653,7 +707,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     np.savetxt(args.outdir + args.out +'_sigma_hat.csv',args.sigma_hat, delimiter ='\t')
 
     summary_df = pd.DataFrame(index=np.arange(1,P+1))
-    input_phenotypes = [ '.../'+f[:16] if len(f) > 20 else f for f in args.GWAS_results.split(',')]
+    input_phenotypes = [ '.../'+f[:16] if len(f) > 20 else f for f in args.sumstats.split(',')]
 
     for p in range(P):
         summary_df.loc[p+1,'Phenotype'] = input_phenotypes[p]
@@ -688,8 +742,7 @@ def mtag(args):
         mtag_path = re.findall(".*/",__file__)[0]
         args.ld_ref_panel = mtag_path+'ld_ref_panel/eur_w_ld_chr/'
 
-    ## XXX Check all paths exist / well-formed
-
+    ## TODO Check all input paths
     if not os.path.isdir(args.outdir):
         if args.make_full_path or args.outdir[0] != '/':
             logging.info("Output folder provided does not exist, creating the directory")
@@ -722,7 +775,7 @@ def mtag(args):
         args.sigma_hat = estimate_sigma(DATA, args)
     else:
         args.sigma_hat = _read_matrix(args.residcov_path)
-
+    args.sigm_hat = _posDef_adjustment(args.sigma_hat)
     print(args.sigma_hat)
 
     #5. Estimate Omega
@@ -741,51 +794,60 @@ def mtag(args):
 
     logging.info('MTAG complete. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
 
-parser = argparse.ArgumentParser(description="MTAG: Perform Multitrait Analysis over a provided set of GWAS summary statistics, following the method described by Turley et. al. Requires the user to specify the paths for the GWAS input files with columns formatted according to the documentation and output folder path. \n Note below: list of file paths passed to the options below must be comma-separated without whitespace.")
+parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-seperated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimationg resisual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
 
-parser.add_argument("GWAS_results", metavar="{File1},{File2}...", type=str, nargs='?', help='Specify the list of files to perform multitrait analysis. Multiple files paths must be seperated by \",\". Please read the documentation  to find the up-to-date set of acceptable file formats. A general guideline is that any files you pass into MTAG should also be parsable by ldsc and you should take the additional step of specifying the names of the main columns below to avoid reading errors.')
+# input_formatting = parser.add_argument_group(title="Options")
 
-parser.add_argument("--outdir", metavar="FOLDER_PATH",default=".", type=str, help= "Specify the directory to output MTAG results. All output files created in this folder will be prefixed by the name passed to --out. The default is the current directory.")
-parser.add_argument("--out", metavar="NAME", default="mtag", type=str, help='Specify the name prefix that all will share. Default name is \'mtag_results\'')
-
-parser.add_argument("--snp_name", default="snpid", action="store",type=str, help="Name of the single column that provides the unique identifier for SNPs in the GWAS summary statistics across all GWAS results. Default is \"snpid\". This the index that will be used to merge the GWAS summary statistics. Any SNP lists passed to ---include or --exclude should also contain the same name.")
-parser.add_argument("--z_name", default=None, help="The common name of the column of Z scores across all input files. Default is to search for columns beginning with the lowercase letter z.")
-parser.add_argument("--n_name", default=None, help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is to search for columns beginning with the lowercase letter  n.")
-parser.add_argument('--maf_name',default=None, help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is to search for columns beginning with either \"maf\" or \"freq\".")
-parser.add_argument('--chr_name',default='chr', type=str, help="Name of the column containing the chromosome of each SNP in the GWAS input. Default is \"chr\".")
-parser.add_argument('--bpos_name',default='bpos', type=str, help="Name of the column containing the base pair of each SNP in the GWAS input. Default is \"bpos\".")
-parser.add_argument('--a1_name',default='a1', type=str, help="Name of the column containing the effect allele of each SNP in the GWAS input. Default is \"a1\".")
-parser.add_argument('--a2_name',default='a2', type=str, help="Name of the column containing the non-effect allele of each SNP in the GWAS input. Default is \"a2\".")
+in_opts = parser.add_argument_group(title='Input Files', description="Input files to be used by MTAG. The --sumstats option is required, while using the other two options take priority of their corresponding estimation routines, if used.")
+in_opts.add_argument("--sumstats", metavar="{File1},{File2}...", type=str, nargs='?',required=True, help='Specify the list of summary statistics files to perform multitrait analysis. Multiple files paths must be seperated by \",\". Please read the documentation  to find the up-to-date set of acceptable file formats. A general guideline is that any files you pass into MTAG should also be parsable by ldsc and you should take the additional step of specifying the names of the main columns below to avoid reading errors.')
+in_opts.add_argument("--gencov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the genetic covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in whitespace-delimited .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal.")
+in_opts.add_argument("--residcov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the residual covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal. File must either be in whitespace-delimited .csv  or .npy")
 
 
-parser.add_argument("--make_full_path", default=False, action="store_true", help="option to make output path specified in -out if it does not exist.")
-
-parser.add_argument("--include",default=None, metavar="SNPLIST1,SNPLIST2,..", type=str, help="Restricts MTAG analysis to the union of snps in the list of  snplists provided. The header line must match the SNP index that will be used to merge the GWAS input files.")
-parser.add_argument("--exclude", "--excludeSNPs",default=None, metavar="SNPLIST1,SNPLIST2,..", type=str, help="Similar to the --include option, except that the union of SNPs found in the specified files will be excluded from MTAG. Both -exclude and -include may be simultaneously specified, but -exclude will take precedent (i.e., SNPs found in both the -include and -exclude SNP lists will be excluded).")
-parser.add_argument('--only_chr', metavar="CHR_A,CHR_B,..", default=None, type=str, action="store", help="Restrict MTAG to SNPs on one of the listed, comma-separated chromosome. Can be specified simultaneously with --include and --exclude, but will take precedent over both. Not generally recommended. Multiple chromosome numbers should be seperated by commas without whitespace. If this option is specified, the GWAS summary statistics must also list the chromosome of each SNPs in a column named \`chr\`.")
-
-parser.add_argument("--gencov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the genetic covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in whitespace-delimited .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal.")
-parser.add_argument("--residcov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the residual covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal. File must either be in whitespace-delimited .csv  or .npy")
-
-parser.add_argument('--time_limit', default=100.,type=float, action="store", help="Set time limit (hours) on the numerical estimation of the variance covariance matrix for MTAG, after which the optimization routine will complete its current iteration and perform MTAG using the last iteration of the genetic VCV.")
-
-parser.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes, i.e., the weights 1/sqrt(2*MAF*(1-MAF)) are not applied when outputting MTAG results, where MAF is the minor allele frequency.")
-parser.add_argument("--tol", default=1e-7,type=float, help="Set the absolute tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of phenotypes.")
+out_opts = parser.add_argument_group(title="Output formatting", description="Set the output directory and common name of prefix files.")
+out_opts.add_argument("--outdir", metavar="FOLDER_PATH",default=".", type=str, help= "Specify the directory to output MTAG results. All output files created in this folder will be prefixed by the name passed to --out. The default is the current directory.")
+out_opts.add_argument("--out", metavar="NAME", default="mtag", type=str, help='Specify the name prefix that all will share. Default name is \'mtag_results\'')
+out_opts.add_argument("--make_full_path", default=False, action="store_true", help="option to make output path specified in -out if it does not exist.")
 
 
-parser.add_argument("--homogNs_frac", default=None, type=float, action="store", metavar="FRAC", help="Restricts to SNPs within FRAC of the mode of sample sizes for the SNPs as given by (N-Mode)/Mode < FRAC. This filter is not applied by default.")
-parser.add_argument("--homogNs_dist", default=None, type=float, action="store", metavar="FRAC", help="Restricts to SNPs within DIST (in sample size) of the mode of sample sizes for the SNPs. This filter is not applied by default.")
 
-parser.add_argument('--maf_min', default=0.01, type=float, action='store', help="set the threshold below SNPs with low minor allele frequencies will be dropped. Default is 0.01. Set to 0 to skip MAF filtering.")
-parser.add_argument('--n_min', default=None, type=float, action='store', help="set the minimum threshold for SNP sample size in input data. Default is 2/3*(90th percentile). Any SNP that does not pass this threshold for all of the GWAS input statistics will not be included in MTAG.")
-parser.add_argument('--n_max', default=None, type=float, action='store', help="set the maximum threshold for SNP sample size in input data. Not used by default. Any SNP that does not pass this threshold for any of the GWAS input statistics will not be included in MTAG.")
-parser.add_argument("--info_min", default=None,type=float, help="Minimim info score for filtering SNPs for MTAG.")
 
-parser.add_argument('--analytic_omega', default=False, action='store_true', help='Option to turn off the numerical estimation of the genetic VCV matrix in the presence of constant sample size within each GWAS, for which a closed-form solution exists. The default is to typically use the closed form solution as the starting point for the numerical solution to the maximum-likelihood genetic VCV, Use with caution! If any input GWAS does not have constant sample size, then the analytic solution employed here will not be a maximizer of the likelihood function.')
-parser.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary staistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
-parser.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all phenotypes used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
-parser.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all phenotypes passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conejunction with --perfect_gencov')
-parser.add_argument('--ld_ref_panel', default=None, action='store',metavar="FOLDER_PATH", type=str, help='Specify folder of the ld reference panel (split by chromosome) that will be used in the estimation of the error VCV (sigma). This option is passed to --ref-ld-chr and --w-ld-chr when running LD score regression. The default is to use the reference panel of LD scores computed from 1000 Genomes European subjects (eur_w_ld_chr) that is included with the distribution of MTAG')
+input_formatting = parser.add_argument_group(title="Column names of input files", description="These options manually pass the names of the relevant summary statistics columns used by MTAG. It is recommended to pass these names because only narrow searches for these columns are performed in the default cases. Moreover, it is necessary that these input files be readable by ldsc's munge_sumstats command.")
+input_formatting.add_argument("--snp_name", default="snpid", action="store",type=str, help="Name of the single column that provides the unique identifier for SNPs in the GWAS summary statistics across all GWAS results. Default is \"snpid\". This the index that will be used to merge the GWAS summary statistics. Any SNP lists passed to ---include or --exclude should also contain the same name.")
+input_formatting.add_argument("--z_name", default=None, help="The common name of the column of Z scores across all input files. Default is to search for columns beginning with the lowercase letter z.")
+input_formatting.add_argument("--n_name", default=None, help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is to search for columns beginning with the lowercase letter  n.")
+input_formatting.add_argument('--maf_name',default=None, help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is to search for columns beginning with either \"maf\" or \"freq\".")
+input_formatting.add_argument('--chr_name',default='chr', type=str, help="Name of the column containing the chromosome of each SNP in the GWAS input. Default is \"chr\".")
+input_formatting.add_argument('--bpos_name',default='bpos', type=str, help="Name of the column containing the base pair of each SNP in the GWAS input. Default is \"bpos\".")
+input_formatting.add_argument('--a1_name',default='a1', type=str, help="Name of the column containing the effect allele of each SNP in the GWAS input. Default is \"a1\".")
+input_formatting.add_argument('--a2_name',default='a2', type=str, help="Name of the column containing the non-effect allele of each SNP in the GWAS input. Default is \"a2\".")
+
+
+filter_opts = parser.add_argument_group(title="Filter Options", description="The input summary stastistics files can be filtered using the options below. Note that there is some default filtering according to sample size and allele frequency, following the recommendations we make in the corresponding paper. All of these column-based options allow a list of values to be passed of the same length as the number of traits ")
+filter_opts.add_argument("--include",default=None, metavar="SNPLIST1,SNPLIST2,..", type=str, help="Restricts MTAG analysis to the union of snps in the list of  snplists provided. The header line must match the SNP index that will be used to merge the GWAS input files.")
+filter_opts.add_argument("--exclude", "--excludeSNPs",default=None, metavar="SNPLIST1,SNPLIST2,..", type=str, help="Similar to the --include option, except that the union of SNPs found in the specified files will be excluded from MTAG. Both -exclude and -include may be simultaneously specified, but -exclude will take precedent (i.e., SNPs found in both the -include and -exclude SNP lists will be excluded).")
+filter_opts.add_argument('--only_chr', metavar="CHR_A,CHR_B,..", default=None, type=str, action="store", help="Restrict MTAG to SNPs on one of the listed, comma-separated chromosome. Can be specified simultaneously with --include and --exclude, but will take precedent over both. Not generally recommended. Multiple chromosome numbers should be seperated by commas without whitespace. If this option is specified, the GWAS summary statistics must also list the chromosome of each SNPs in a column named \`chr\`.")
+
+filter_opts.add_argument("--homogNs_frac", default=None, type=str, action="store", metavar="FRAC", help="Restricts to SNPs within FRAC of the mode of sample sizes for the SNPs as given by (N-Mode)/Mode < FRAC. This filter is not applied by default.")
+filter_opts.add_argument("--homogNs_dist", default=None, type=str, action="store", metavar="FRAC", help="Restricts to SNPs within DIST (in sample size) of the mode of sample sizes for the SNPs. This filter is not applied by default.")
+
+filter_opts.add_argument('--maf_min', default=0.01, type=str, action='store', help="set the threshold below SNPs with low minor allele frequencies will be dropped. Default is 0.01. Set to 0 to skip MAF filtering.")
+filter_opts.add_argument('--n_min', default=None, type=str, action='store', help="set the minimum threshold for SNP sample size in input data. Default is 2/3*(90th percentile). Any SNP that does not pass this threshold for all of the GWAS input statistics will not be included in MTAG.")
+filter_opts.add_argument('--n_max', default=None, type=str, action='store', help="set the maximum threshold for SNP sample size in input data. Not used by default. Any SNP that does not pass this threshold for any of the GWAS input statistics will not be included in MTAG.")
+filter_opts.add_argument("--info_min", default=None,type=str, help="Minimim info score for filtering SNPs for MTAG.")
+
+special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implict in each option are violated.")
+special_cases.add_argument('--analytic_omega', default=False, action='store_true', help='Option to turn off the numerical estimation of the genetic VCV matrix in the presence of constant sample size within each GWAS, for which a closed-form solution exists. The default is to typically use the closed form solution as the starting point for the numerical solution to the maximum-likelihood genetic VCV, Use with caution! If any input GWAS does not have constant sample size, then the analytic solution employed here will not be a maximizer of the likelihood function.')
+special_cases.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary staistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
+special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all phenotypes used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
+special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all phenotypes passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conejunction with --perfect_gencov')
+misc = parser.add_argument_group(title="Miscellaneous")
+
+misc.add_argument('--ld_ref_panel', default=None, action='store',metavar="FOLDER_PATH", type=str, help='Specify folder of the ld reference panel (split by chromosome) that will be used in the estimation of the error VCV (sigma). This option is passed to --ref-ld-chr and --w-ld-chr when running LD score regression. The default is to use the reference panel of LD scores computed from 1000 Genomes European subjects (eur_w_ld_chr) that is included with the distribution of MTAG')
+misc.add_argument('--time_limit', default=100.,type=float, action="store", help="Set time limit (hours) on the numerical estimation of the variance covariance matrix for MTAG, after which the optimization routine will complete its current iteration and perform MTAG using the last iteration of the genetic VCV.")
+
+misc.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes, i.e., the weights 1/sqrt(2*MAF*(1-MAF)) are not applied when outputting MTAG results, where MAF is the minor allele frequency.")
+misc.add_argument("--tol", default=1e-7,type=float, help="Set the absolute tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of phenotypes.")
 
 if __name__ == '__main__':
     start_t = time.time()
