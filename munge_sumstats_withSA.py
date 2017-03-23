@@ -355,7 +355,7 @@ def munge_GWASinput(args, p=True):
         drops = {'NA': 0, 'P': 0, 'INFO': 0,
                  'FRQ': 0, 'A': 0, 'SNP': 0, 'MERGE': 0}
         for block_num, dat in enumerate(dat_gen):
-            sys.stdout.write('.')
+            # sys.stdout.write('.')
             tot_snps += len(dat)
             old = len(dat)
             dat = dat.dropna(axis=0, how="any", subset=filter(
@@ -411,7 +411,7 @@ def munge_GWASinput(args, p=True):
 
             dat_list.append(dat[ii].reset_index(drop=True))
 
-        sys.stdout.write(' done\n')
+        # sys.stdout.write(' done\n')
         dat = pd.concat(dat_list, axis=0).reset_index(drop=True)
         msg = 'Read {N} SNPs from --sumstats file.\n'.format(N=tot_snps)
         if args.merge_alleles:
@@ -442,7 +442,8 @@ def munge_GWASinput(args, p=True):
             # NB no filtering on N done here -- that is done in the next code block
 
         if 'N' in dat.columns:
-            n_min = args.n_min if args.n_min else dat.N.quantile(0.9) / 1.5
+            n_min = args.n_min if args.n_min is not None else dat.N.quantile(0.9) / 1.5
+            
             old = len(dat)
             dat = dat[dat.N >= n_min].reset_index(drop=True)
             new = len(dat)

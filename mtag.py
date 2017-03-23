@@ -16,7 +16,7 @@ from ldsc_mod import munge_sumstats_withoutSA
 from ldsc_mod.ldscore import sumstats as sumstats_sig
 
 __version__ = '1.0.0'
-header =""
+header ="\n"
 header = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n"
 header += "<>\n"
 header += "<> MTAG: Multitrait Analysis of GWAS \n"
@@ -25,6 +25,7 @@ header += "<> (C) 2017 Omeed Maghzian, Raymond Walters, and Patrick Turley\n"
 header += "<> Harvard Univeristy Department of Economics / Broad Institute of MIT and Harvard\n"
 header += "<> GNU General Public License v3\n"
 header += "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n"
+header += "\n"
 
 pd.set_option('display.max_rows', 500)
 pd.set_option('display.width', 800)
@@ -146,7 +147,7 @@ def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
             n_min_list = n_min_list * P
     else:
         n_min_list = [None]*P
-
+    
     if args.maf_min is not None:
         maf_min_list = [float(x) for x in args.maf_min.split(',')]
         if len(maf_min_list) == 1:
@@ -172,7 +173,7 @@ def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
         if args.info_min is None:
             ignore_list += "info"
 
-        argnames = Namespace(sumstats=GWAS_filepaths[p],N=None,N_cas=None,N_con=None,out=args.munge_out+'filtering',maf_min=maf_min_list[p], info_min =info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=n_min_list[p],chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.maf_name,signed_sumstats=args.z_name,info=args.info_min,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
+        argnames = Namespace(sumstats=GWAS_filepaths[p],N=None,N_cas=None,N_con=None,out=args.munge_out+'filtering',maf_min=maf_min_list[p], info_min =info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=n_min_list[p],chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=args.z_name, info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
 
         # filtering done with a modified version of munge sumstats that allows for strand ambiguous SNPs. This is a different file than the munge sumstats used in preparation to estimate sigma hat.
         filtered_results = munge_sumstats_withSA.munge_GWASinput(argnames)
@@ -303,7 +304,8 @@ def estimate_sigma(data_df, args):
         save_paths_postmunge[p] = args.munge_out + '_sigma_est_postMunge' + str(p)
         gwas_filtered_df.to_csv(save_paths_premunge[p], sep='\t',index=False)
 
-        args_munge_sigma = Namespace(sumstats=save_paths_premunge[p],N=None,N_cas=None,N_con=None,out=save_paths_postmunge[p],maf_min=args.maf_min, info_min =args.info_min,daner=False, no_alleles=False, merge_alleles=None,n_min=0,chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.maf_name,signed_sumstats=args.z_name+',0',info=args.info_min,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
+        # we can manually many of the munge filters because the summary statistics have already been filtered.
+        args_munge_sigma = Namespace(sumstats=save_paths_premunge[p],N=None,N_cas=None,N_con=None,out=save_paths_postmunge[p],maf_min=0, info_min =0.9,daner=False, no_alleles=False, merge_alleles=None,n_min=0,chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=args.z_name+',0',info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
         munge_sumstats_withoutSA.munge_sumstats(args_munge_sigma)
 
     # run ldsc
@@ -388,13 +390,14 @@ def extract_gwas_sumstats(DATA, args):
             for p in range(args.P):
                 N_nearMode[:,p] = np.abs((Ns[:,p] - N_modes[p])) / N_modes[p] <= homogNs_frac_list[p]
         elif args.homogNs_dist is not None:
-            logging.info('--homogNs_dist {} is on, filtering SNPs ...'.format(args.homogNs_dst))
+            logging.info('--homogNs_dist {} is on, filtering SNPs ...'.format(args.homogNs_dist))
             homogNs_dist_list = [float(x) for x in args.homogNs_dist.split(',')]
             if len(homogNs_dist_list) == 1:
-                homogNs_dist_list = homogNs_frac_list*args.P
+                homogNs_dist_list = homogNs_dist_list*args.P
+            
             assert np.all(np.array(homogNs_dist_list) >=0)
             for p in range(args.P):
-                N_nearMode[:,p] =  np.abs(Ns[:,p] - N_modes[:,p]) <= args.homogNs_dist[:,p]
+                N_nearMode[:,p] =  np.abs(Ns[:,p] - N_modes[p]) <= homogNs_dist_list[p]
         else:
             raise ValueError('Cannot specify both --homogNs_frac and --homogNs_dist at the same time.')
 
@@ -426,18 +429,18 @@ def extract_gwas_sumstats(DATA, args):
     else:
         Zs = DATA.filter(regex='^[zZ].').as_matrix()
         args.z_name = 'z'
-    if args.maf_name is not  None:
-        f_cols = [args.maf_name + str(p) for p in range(args.P)]
+    if args.eaf_name is not  None:
+        f_cols = [args.eaf_name + str(p) for p in range(args.P)]
+
         Fs =DATA.filter(items=f_cols).as_matrix()
     else:
         orig_case_cols = DATA.columns
         DATA.columns = map(str.upper, DATA.columns)
-
+        
         Fs = DATA.filter(regex='^/MAF|FREQ|FRQ/.').as_matrix()
 
-        args.maf_name = 'freq'
+        args.eaf_name = 'freq'
         DATA.columns = orig_case_cols
-
     assert Zs.shape[1] == Ns.shape[1] == Fs.shape[1]
 
     results_template = pd.DataFrame(index=np.arange(len(DATA)))
@@ -505,6 +508,11 @@ def analytic_omega(Zs,Ns,sigma_LD):
     N_mats = np.einsum('mp, mq -> mpq', np.sqrt(Ns), np.sqrt(Ns))
 
     Cov_mean = np.mean(np.einsum('mp,mq->mpq',Zs,Zs) / N_mats, axis=0)
+    print(Cov_mean)
+    print(N_mean)
+    print('Sigs')
+    print(sigma_LD)
+    print(sigma_LD / np.sqrt(np.outer(N_mean,N_mean)))
     return Cov_mean - sigma_LD / np.sqrt(np.outer(N_mean,N_mean))
 
 def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
@@ -512,12 +520,12 @@ def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
     solver_options = dict()
     solver_options['fatol'] = 1.0e-30
     solver_options['xatol'] = 1.0e-15
-    solver_options['disp'] = True
+    solver_options['disp'] = False
     if args.perfect_gencov:
         x_start = np.log(np.diag(omega_start))
     else:
         x_start = flatten_out_omega(omega_start)
-    print(len(x_start))
+    
     opt_results = scipy.optimize.minimize(_omega_neglogL,x_start,args=(Zs,N_mats,sigma_LD,args),method='Nelder-Mead',options=solver_options)
 
     if args.perfect_gencov:
@@ -593,6 +601,7 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
             return np.sqrt(np.outer(np.diag(omega_hat),np.diag(omega_hat)))
 
     elif args.analytic_omega: # analytic solution only.
+
         return analytic_omega(Zs,Ns,sigma_LD)
 
     # want analytic solution
@@ -600,7 +609,7 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
         omega_in = analytic_omega(Zs,Ns,sigma_LD)
 
     logL_list = [logL(jointEffect_probability(Zs,omega_in,sigma_LD,N_mats))]
-
+    print(omega_in)
     omega_hat = omega_in
     while (time.time()-start_time)/3600 <= args.time_limit:
         # numerical solution
@@ -676,7 +685,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         out_df = results_template.copy()
         out_df[args.z_name] = Zs[:,p]
         out_df[args.n_name] = Ns[:,p]
-        out_df[args.maf_name] = Fs[:,p]
+        out_df[args.eaf_name] = Fs[:,p]
 
         if args.std_betas:
             weights = np.ones(M,dtype=float)
@@ -695,14 +704,14 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         out_df.to_csv(out_path,sep='\t', index=False)
 
     if not args.equal_h2:
-        omega_out = "Estimated Omega:\n"
+        omega_out = "\nEstimated Omega:\n"
         omega_out += str(args.omega_hat)
         np.savetxt(args.outdir + args.out +'_omega_hat.csv',args.omega_hat, delimiter ='\t')
     else:
         omega_out = "Omega hat not compute because --equal_h2 was used.\n"
 
 
-    sigma_out = "Estimated Sigma:\n"
+    sigma_out = "\nEstimated Sigma:\n"
     sigma_out += str(args.sigma_hat)
     np.savetxt(args.outdir + args.out +'_sigma_hat.csv',args.sigma_hat, delimiter ='\t')
 
@@ -712,6 +721,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     for p in range(P):
         summary_df.loc[p+1,'Phenotype'] = input_phenotypes[p]
         summary_df.loc[p+1, 'n (max)'] = np.max(Ns[:,p])
+        summary_df.loc[p+1, 'n (mean)'] = np.mean(Ns[:,p])
         summary_df.loc[p+1, '# SNPs used'] = len(Zs[:,p])
         summary_df.loc[p+1, 'GWAS mean chi^2'] = np.mean(np.square(Zs[:,p]))
         Z_mtag = mtag_betas[:,p]/mtag_se[:,p]
@@ -755,7 +765,10 @@ def mtag(args):
 
     header_sub = header
     header_sub += "Calling ./mtag.py \\\n"
-    options = ['--{KEY} {VAL} \\'.format(KEY=x.replace('_','-'),VAL= vars(args)[x]) for x in vars(args).keys()]
+    defaults = vars(parser.parse_args(''))
+    opts = vars(args)
+    non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
+    options = ['--'+x.replace('_','-')+' '+str(opts[x])+' \\' for x in non_defaults]
     header_sub += '\n'.join(options).replace('True','').replace('False','')
     header_sub = header_sub[0:-1] + '\n'
 
@@ -776,12 +789,12 @@ def mtag(args):
     else:
         args.sigma_hat = _read_matrix(args.residcov_path)
     args.sigm_hat = _posDef_adjustment(args.sigma_hat)
-    print(args.sigma_hat)
-
+    
     #5. Estimate Omega
 
     if args.gencov_path is None:
         args.omega_hat = estimate_omega(args, Zs, Ns, args.sigma_hat)
+        logging.info('Completed estimation of Omega ...')
     else:
         args.omega_hat = _read_matrix(args.gencov_path)
 
@@ -799,7 +812,7 @@ parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of 
 # input_formatting = parser.add_argument_group(title="Options")
 
 in_opts = parser.add_argument_group(title='Input Files', description="Input files to be used by MTAG. The --sumstats option is required, while using the other two options take priority of their corresponding estimation routines, if used.")
-in_opts.add_argument("--sumstats", metavar="{File1},{File2}...", type=str, nargs='?',required=True, help='Specify the list of summary statistics files to perform multitrait analysis. Multiple files paths must be seperated by \",\". Please read the documentation  to find the up-to-date set of acceptable file formats. A general guideline is that any files you pass into MTAG should also be parsable by ldsc and you should take the additional step of specifying the names of the main columns below to avoid reading errors.')
+in_opts.add_argument("--sumstats", metavar="{File1},{File2}...", type=str, nargs='?',required=False, help='Specify the list of summary statistics files to perform multitrait analysis. Multiple files paths must be seperated by \",\". Please read the documentation  to find the up-to-date set of acceptable file formats. A general guideline is that any files you pass into MTAG should also be parsable by ldsc and you should take the additional step of specifying the names of the main columns below to avoid reading errors.')
 in_opts.add_argument("--gencov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the genetic covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in whitespace-delimited .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal.")
 in_opts.add_argument("--residcov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the residual covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal. File must either be in whitespace-delimited .csv  or .npy")
 
@@ -816,7 +829,7 @@ input_formatting = parser.add_argument_group(title="Column names of input files"
 input_formatting.add_argument("--snp_name", default="snpid", action="store",type=str, help="Name of the single column that provides the unique identifier for SNPs in the GWAS summary statistics across all GWAS results. Default is \"snpid\". This the index that will be used to merge the GWAS summary statistics. Any SNP lists passed to ---include or --exclude should also contain the same name.")
 input_formatting.add_argument("--z_name", default=None, help="The common name of the column of Z scores across all input files. Default is to search for columns beginning with the lowercase letter z.")
 input_formatting.add_argument("--n_name", default=None, help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is to search for columns beginning with the lowercase letter  n.")
-input_formatting.add_argument('--maf_name',default=None, help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is to search for columns beginning with either \"maf\" or \"freq\".")
+input_formatting.add_argument('--eaf_name',default=None, help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is to search for columns beginning with either \"maf\" or \"freq\".")
 input_formatting.add_argument('--chr_name',default='chr', type=str, help="Name of the column containing the chromosome of each SNP in the GWAS input. Default is \"chr\".")
 input_formatting.add_argument('--bpos_name',default='bpos', type=str, help="Name of the column containing the base pair of each SNP in the GWAS input. Default is \"bpos\".")
 input_formatting.add_argument('--a1_name',default='a1', type=str, help="Name of the column containing the effect allele of each SNP in the GWAS input. Default is \"a1\".")
@@ -829,9 +842,9 @@ filter_opts.add_argument("--exclude", "--excludeSNPs",default=None, metavar="SNP
 filter_opts.add_argument('--only_chr', metavar="CHR_A,CHR_B,..", default=None, type=str, action="store", help="Restrict MTAG to SNPs on one of the listed, comma-separated chromosome. Can be specified simultaneously with --include and --exclude, but will take precedent over both. Not generally recommended. Multiple chromosome numbers should be seperated by commas without whitespace. If this option is specified, the GWAS summary statistics must also list the chromosome of each SNPs in a column named \`chr\`.")
 
 filter_opts.add_argument("--homogNs_frac", default=None, type=str, action="store", metavar="FRAC", help="Restricts to SNPs within FRAC of the mode of sample sizes for the SNPs as given by (N-Mode)/Mode < FRAC. This filter is not applied by default.")
-filter_opts.add_argument("--homogNs_dist", default=None, type=str, action="store", metavar="FRAC", help="Restricts to SNPs within DIST (in sample size) of the mode of sample sizes for the SNPs. This filter is not applied by default.")
+filter_opts.add_argument("--homogNs_dist", default=None, type=str, action="store", metavar="D", help="Restricts to SNPs within DIST (in sample size) of the mode of sample sizes for the SNPs. This filter is not applied by default.")
 
-filter_opts.add_argument('--maf_min', default=0.01, type=str, action='store', help="set the threshold below SNPs with low minor allele frequencies will be dropped. Default is 0.01. Set to 0 to skip MAF filtering.")
+filter_opts.add_argument('--maf_min', default='0.01', type=str, action='store', help="set the threshold below SNPs with low minor allele frequencies will be dropped. Default is 0.01. Set to 0 to skip MAF filtering.")
 filter_opts.add_argument('--n_min', default=None, type=str, action='store', help="set the minimum threshold for SNP sample size in input data. Default is 2/3*(90th percentile). Any SNP that does not pass this threshold for all of the GWAS input statistics will not be included in MTAG.")
 filter_opts.add_argument('--n_max', default=None, type=str, action='store', help="set the maximum threshold for SNP sample size in input data. Not used by default. Any SNP that does not pass this threshold for any of the GWAS input statistics will not be included in MTAG.")
 filter_opts.add_argument("--info_min", default=None,type=str, help="Minimim info score for filtering SNPs for MTAG.")
@@ -860,4 +873,3 @@ if __name__ == '__main__':
     time_elapsed = round(time.time() - start_t, 2)
     logging.info('Total time elapsed: {T}'.format(T=sec_to_str(time_elapsed)))
     '''
-    print('Done')

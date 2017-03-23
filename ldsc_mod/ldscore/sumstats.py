@@ -387,9 +387,9 @@ def estimate_rg(args, log):
     f = lambda x: _split_or_none(x, n_pheno)
     args.intercept_h2, args.intercept_gencov, args.samp_prev, args.pop_prev = map(f,
         (args.intercept_h2, args.intercept_gencov, args.samp_prev, args.pop_prev))
-    print(args.intercept_gencov)
-    print(args.intercept_h2)
-    print('XXX')
+    #print(args.intercept_gencov)
+    #print(args.intercept_h2)
+    #print('XXX')
     map(lambda x: _check_arg_len(x, n_pheno), ((args.intercept_h2, '--intercept-h2'),
                                                (args.intercept_gencov, '--intercept-gencov'),
                                                (args.samp_prev, '--samp-prev'),
@@ -443,13 +443,13 @@ def _read_other_sumstats(args, log, p2, sumstats, ref_ld_cnames):
     if not args.no_check_alleles:
         loop = _select_and_log(loop, _filter_alleles(alleles), log,
                                '{N} SNPs with valid alleles.')
-    print('1. '+str(len(loop)))
+    #print('1. '+str(len(loop)))
     loop['Z2'] = _align_alleles(loop.Z2, alleles)
-    print('2. '+str(len(loop)))
+    #print('2. '+str(len(loop)))
     loop = loop.drop(['A1', 'A1x', 'A2', 'A2x'], axis=1)
-    print('3. '+str(len(loop)))
+    #print('3. '+str(len(loop)))
     _check_ld_condnum(args, log, loop[ref_ld_cnames])
-    print('4. '+str(len(loop)))
+    # print('4. '+str(len(loop)))
     _warn_length(log, loop)
     return loop
 
