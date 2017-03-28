@@ -22,7 +22,7 @@ header += "<>\n"
 header += "<> MTAG: Multitrait Analysis of GWAS \n"
 header += "<> Version: {}\n".format(str(__version__))
 header += "<> (C) 2017 Omeed Maghzian, Raymond Walters, and Patrick Turley\n"
-header += "<> Harvard Univeristy Department of Economics / Broad Institute of MIT and Harvard\n"
+header += "<> Harvard University Department of Economics / Broad Institute of MIT and Harvard\n"
 header += "<> GNU General Public License v3\n"
 header += "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n"
 header += "\n"
@@ -698,22 +698,22 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         out_df['mtag_pval'] = p_values(out_df['mtag_z'])
 
         if P == 1:
-            out_path = args.outdir + args.out +'_phenotype.csv'
+            out_path = args.out +'_phenotype.csv'
         else:
-            out_path = args.outdir + args.out +'_phenotype_' + str(p+1) + '.csv'
+            out_path = args.out +'_phenotype_' + str(p+1) + '.csv'
         out_df.to_csv(out_path,sep='\t', index=False)
 
     if not args.equal_h2:
         omega_out = "\nEstimated Omega:\n"
         omega_out += str(args.omega_hat)
-        np.savetxt(args.outdir + args.out +'_omega_hat.csv',args.omega_hat, delimiter ='\t')
+        np.savetxt(args.out +'_omega_hat.csv',args.omega_hat, delimiter ='\t')
     else:
         omega_out = "Omega hat not compute because --equal_h2 was used.\n"
 
 
     sigma_out = "\nEstimated Sigma:\n"
     sigma_out += str(args.sigma_hat)
-    np.savetxt(args.outdir + args.out +'_sigma_hat.csv',args.sigma_hat, delimiter ='\t')
+    np.savetxt( args.out +'_sigma_hat.csv',args.sigma_hat, delimiter ='\t')
 
     summary_df = pd.DataFrame(index=np.arange(1,P+1))
     input_phenotypes = [ '.../'+f[:16] if len(f) > 20 else f for f in args.sumstats.split(',')]
@@ -745,8 +745,14 @@ def mtag(args):
     if args.equal_h2 and not args.perfect_gencov:
         raise ValueError("--equal_h2 option used without --perfect_gencov. To use --equal_h2, --perfect_gencov must be also be included.")
 
+    # take output directory from --out path
+    try :
+        args.outdir = re.search('.+/', args.out).group(1)
+    except AttributeError:
+        logging.info('Invalid path used for --out: must have at least one / (use ./[tag] for current directory) and must not end in /')
+        raise
 
-    args.outdir = args.outdir if args.outdir[-1] in ['/','\\'] else args.outdir + '/'
+    # args.outdir = args.outdir if args.outdir[-1] in ['/','\\'] else args.outdir + '/'
 
     if args.ld_ref_panel is None:
         mtag_path = re.findall(".*/",__file__)[0]
@@ -761,7 +767,7 @@ def mtag(args):
             raise ValueError('Could not find output directory:\n {} \n at the specified absoluate path. To create this directory, use the --make_full_path option.'.format(args.outdir))
 
      ## Instantiate log file and masthead
-    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.outdir + args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
+    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
 
     header_sub = header
     header_sub += "Calling ./mtag.py \\\n"
@@ -818,11 +824,9 @@ in_opts.add_argument("--residcov_path",metavar="FILE_PATH", default=None, action
 
 
 out_opts = parser.add_argument_group(title="Output formatting", description="Set the output directory and common name of prefix files.")
-out_opts.add_argument("--outdir", metavar="FOLDER_PATH",default=".", type=str, help= "Specify the directory to output MTAG results. All output files created in this folder will be prefixed by the name passed to --out. The default is the current directory.")
-out_opts.add_argument("--out", metavar="NAME", default="mtag", type=str, help='Specify the name prefix that all will share. Default name is \'mtag_results\'')
+
+out_opts.add_argument("--out", metavar="[DIR]/[PREFIX]", default="./mtag_results", type=str, help='Specify the directory and name prefix to output MTAG results. All mtag results will be prefixed with the corresponding tag. Default is ./mtag_results')
 out_opts.add_argument("--make_full_path", default=False, action="store_true", help="option to make output path specified in -out if it does not exist.")
-
-
 
 
 input_formatting = parser.add_argument_group(title="Column names of input files", description="These options manually pass the names of the relevant summary statistics columns used by MTAG. It is recommended to pass these names because only narrow searches for these columns are performed in the default cases. Moreover, it is necessary that these input files be readable by ldsc's munge_sumstats command.")
