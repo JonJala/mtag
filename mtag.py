@@ -236,8 +236,15 @@ def load_and_merge_data(args):
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
         if p == 0:
             GWAS_all = GWAS_d[p]
+            logging.info('Trait {} summary statistics: \t {} SNPs remain.'.format(p+1, len(GWAS_d[p])))
+
         else:
             GWAS_all = GWAS_all.merge(GWAS_d[p], how = 'inner', on=args.snp_name)
+            logging.info('Trait {} summary statistics: \t {} SNPs remain.'.format(p+1, len(GWAS_d[p])))
+
+
+
+
 
 
 
@@ -426,7 +433,6 @@ def extract_gwas_sumstats(DATA, args):
 
     Ns = Ns[N_passFilter]
     DATA = DATA[N_passFilter]
-
 
     if args.z_name is not None:
         z_cols = [args.z_name +str(p) for p in range(args.P)]
@@ -619,7 +625,6 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
     logL_list = [logL(jointEffect_probability(Zs,omega_in,sigma_LD,N_mats))]
     #print(omega_in)
     omega_hat = omega_in
-    logging.info('omega_hat:\n{}'.format(omega_hat))
     while (time.time()-start_time)/3600 <= args.time_limit:
         # numerical solution
         omega_hat = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
@@ -628,8 +633,6 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
         # check that logL increasing
         if np.abs(logL_list[-1]-logL_list[-2]) < args.tol:
             break
-
-    logging.info('Completed estimation of Omega ...')
 
     return omega_hat
 
@@ -732,7 +735,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         summary_df.loc[p+1, 'n (max)'] = np.max(Ns[:,p])
         summary_df.loc[p+1, 'n (mean)'] = np.mean(Ns[:,p])
         summary_df.loc[p+1, '# SNPs used'] = len(Zs[:,p])
-        summary_df.loc[p+1, 'GWAS mean chi^2'] = np.mean(np.square(Zs[:,p]))
+        summary_df.loc[p+1, 'GWAS mean chi^2'] = np.mean(np.square(Zs[:,p])) / args.sigma_hat[p,p]
         Z_mtag = mtag_betas[:,p]/mtag_se[:,p]
         summary_df.loc[p+1, 'MTAG mean chi^2'] = np.mean(np.square(Z_mtag))
         summary_df.loc[p+1, 'GWAS equivalent N'] = summary_df.loc[p+1, 'n (max)']*(summary_df.loc[p+1, 'MTAG mean chi^2'] - 1) / (summary_df.loc[p+1, 'GWAS mean chi^2'] - 1)
@@ -879,12 +882,10 @@ misc.add_argument("--tol", default=1e-7,type=float, help="Set the absolute toler
 
 if __name__ == '__main__':
     start_t = time.time()
-    #try:
-    mtag(parser.parse_args())
-    '''
+    try:
+        mtag(parser.parse_args())
     except Exception as e:
-            logging.error(e,exc_info=True)
-    logging.info('Analysis finished at {T}'.format(T=time.ctime()))
-    time_elapsed = round(time.time() - start_t, 2)
-    logging.info('Total time elapsed: {T}'.format(T=sec_to_str(time_elapsed)))
-    '''
+        logging.error(e,exc_info=True)
+        logging.info('Analysis terminated from error at {T}'.format(T=time.ctime()))
+        time_elapsed = round(time.time() - start_t, 2)
+        logging.info('Total time elapsed: {T}'.format(T=sec_to_str(time_elapsed)))
