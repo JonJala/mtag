@@ -726,8 +726,8 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
 
     summary_df = pd.DataFrame(index=np.arange(1,P+1))
     input_phenotypes = [ '.../'+f[:16] if len(f) > 20 else f for f in args.sumstats.split(',')]
-
     for p in range(P):
+
         summary_df.loc[p+1,'Phenotype'] = input_phenotypes[p]
         summary_df.loc[p+1, 'n (max)'] = np.max(Ns[:,p])
         summary_df.loc[p+1, 'n (mean)'] = np.mean(Ns[:,p])
