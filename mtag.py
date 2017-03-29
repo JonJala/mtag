@@ -240,6 +240,7 @@ def load_and_merge_data(args):
             GWAS_all = GWAS_all.merge(GWAS_d[p], how = 'inner', on=args.snp_name)
 
 
+
             # TODO Check if reference alleles flipped
     logging.info('... Merge of GWAS summary statistics complete. Number of SNPs:\t {}'.format(len(GWAS_all)))
 
@@ -338,19 +339,23 @@ def _posDef_adjustment(mat, scaling_factor=0.99,max_it=1000):
     if is_pos_semidef(mat):
         return mat
     else:
-        logging.info('Sigma matrix is not positive definite, performing adjustment..')
+        logging.info('matrix is not positive definite, performing adjustment..')
         P = mat.shape[0]
         for i in range(P):
             for j in range(i,P):
                 if np.abs(mat[i,j]) > np.sqrt(mat[i,i] * mat[j,j]):
-                    mat[i,j] = np.sign(mat[i,j])*np.sqrt(mat[i,i] * mat[j,j])
+                    mat[i,j] = scaling_factor*np.sign(mat[i,j])*np.sqrt(mat[i,i] * mat[j,j])
+                    mat[j,i] = mat[i,j]
         n=0
         while not is_pos_semidef(mat) and n < max_it:
             dg = np.diag(mat)
             mat = scaling_factor * mat 
             mat[np.diag_indices(P)] = dg
+            n += 1
         if n == max_it:
             logging.info('Warning: max number of iterations reached in adjustment procedure. Sigma matrix used is still non-positive-definite.')
+        else:
+            logging.info('Completed in {} iterations'.format(n))
         return mat
 
 
@@ -497,6 +502,11 @@ def jointEffect_probability(Z_score, omega_hat, sigma_hat,N_mats, S=None):
     return jointProbs
 
 
+def gmm_omega(Zs, Ns, sigma_LD):
+    N_mats = np.sqrt(np.einsum('mp,mq->mpq', Ns,Ns))
+    Z_outer = np.einsum('mp,mq->mpq',Zs, Zs)
+    return np.mean((Z_outer - sigma_LD) / N_mats, axis=0)
+
 
 def analytic_omega(Zs,Ns,sigma_LD):
     '''
@@ -508,11 +518,6 @@ def analytic_omega(Zs,Ns,sigma_LD):
     N_mats = np.einsum('mp, mq -> mpq', np.sqrt(Ns), np.sqrt(Ns))
 
     Cov_mean = np.mean(np.einsum('mp,mq->mpq',Zs,Zs) / N_mats, axis=0)
-    print(Cov_mean)
-    print(N_mean)
-    print('Sigs')
-    print(sigma_LD)
-    print(sigma_LD / np.sqrt(np.outer(N_mean,N_mean)))
     return Cov_mean - sigma_LD / np.sqrt(np.outer(N_mean,N_mean))
 
 def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
@@ -600,17 +605,21 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
             omega_hat = analytic_omega(Zs,Ns, sigma_LD)
             return np.sqrt(np.outer(np.diag(omega_hat),np.diag(omega_hat)))
 
+    # XXX add --gmm_omega implementation
+
+
     elif args.analytic_omega: # analytic solution only.
 
         return analytic_omega(Zs,Ns,sigma_LD)
 
     # want analytic solution
     if omega_in is None: # omega_in serves as starting point
-        omega_in = analytic_omega(Zs,Ns,sigma_LD)
+        omega_in = _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
 
     logL_list = [logL(jointEffect_probability(Zs,omega_in,sigma_LD,N_mats))]
-    print(omega_in)
+    #print(omega_in)
     omega_hat = omega_in
+    logging.info('omega_hat:\n{}'.format(omega_hat))
     while (time.time()-start_time)/3600 <= args.time_limit:
         # numerical solution
         omega_hat = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
@@ -708,7 +717,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         omega_out += str(args.omega_hat)
         np.savetxt(args.out +'_omega_hat.csv',args.omega_hat, delimiter ='\t')
     else:
-        omega_out = "Omega hat not compute because --equal_h2 was used.\n"
+        omega_out = "Omega hat not computed because --equal_h2 was used.\n"
 
 
     sigma_out = "\nEstimated Sigma:\n"
@@ -745,12 +754,6 @@ def mtag(args):
     if args.equal_h2 and not args.perfect_gencov:
         raise ValueError("--equal_h2 option used without --perfect_gencov. To use --equal_h2, --perfect_gencov must be also be included.")
 
-    # take output directory from --out path
-    try :
-        args.outdir = re.search('.+/', args.out).group(1)
-    except AttributeError:
-        logging.info('Invalid path used for --out: must have at least one / (use ./[tag] for current directory) and must not end in /')
-        raise
 
     # args.outdir = args.outdir if args.outdir[-1] in ['/','\\'] else args.outdir + '/'
 
@@ -758,13 +761,6 @@ def mtag(args):
         mtag_path = re.findall(".*/",__file__)[0]
         args.ld_ref_panel = mtag_path+'ld_ref_panel/eur_w_ld_chr/'
 
-    ## TODO Check all input paths
-    if not os.path.isdir(args.outdir):
-        if args.make_full_path or args.outdir[0] != '/':
-            logging.info("Output folder provided does not exist, creating the directory")
-            safely_create_folder(args.outdir)
-        else:
-            raise ValueError('Could not find output directory:\n {} \n at the specified absoluate path. To create this directory, use the --make_full_path option.'.format(args.outdir))
 
      ## Instantiate log file and masthead
     logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
@@ -779,6 +775,19 @@ def mtag(args):
     header_sub = header_sub[0:-1] + '\n'
 
     start_time = time.time()  # starting time of analysis
+    # take output directory from --out path
+    try :
+        args.outdir = re.search('.+/', args.out).group(0)
+    except AttributeError:
+        logging.info('Invalid path used for --out: must have at least one / (use ./[tag] for current directory) and must not end in /')
+        raise
+    ## TODO Check all input paths
+    if not os.path.isdir(args.outdir):
+        if args.make_full_path or args.outdir[0] != '/':
+            logging.info("Output folder provided does not exist, creating the directory")
+            safely_create_folder(args.outdir)
+        else:
+            raise ValueError('Could not find output directory:\n {} \n at the specified absolute path. To create this directory, use the --make_full_path option.'.format(args.outdir))
 
     logging.info(header_sub)
     logging.info("Beginning MTAG analysis...")
@@ -795,6 +804,7 @@ def mtag(args):
     else:
         args.sigma_hat = _read_matrix(args.residcov_path)
     args.sigm_hat = _posDef_adjustment(args.sigma_hat)
+    logging.info('Sigma hat:\n{}'.format(args.sigm_hat))
     
     #5. Estimate Omega
 
@@ -813,12 +823,12 @@ def mtag(args):
 
     logging.info('MTAG complete. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
 
-parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-seperated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimationg resisual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
+parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-separated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimating residual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
 
 # input_formatting = parser.add_argument_group(title="Options")
 
 in_opts = parser.add_argument_group(title='Input Files', description="Input files to be used by MTAG. The --sumstats option is required, while using the other two options take priority of their corresponding estimation routines, if used.")
-in_opts.add_argument("--sumstats", metavar="{File1},{File2}...", type=str, nargs='?',required=False, help='Specify the list of summary statistics files to perform multitrait analysis. Multiple files paths must be seperated by \",\". Please read the documentation  to find the up-to-date set of acceptable file formats. A general guideline is that any files you pass into MTAG should also be parsable by ldsc and you should take the additional step of specifying the names of the main columns below to avoid reading errors.')
+in_opts.add_argument("--sumstats", metavar="{File1},{File2}...", type=str, nargs='?',required=False, help='Specify the list of summary statistics files to perform multitrait analysis. Multiple files paths must be separated by \",\". Please read the documentation  to find the up-to-date set of acceptable file formats. A general guideline is that any files you pass into MTAG should also be parsable by ldsc and you should take the additional step of specifying the names of the main columns below to avoid reading errors.')
 in_opts.add_argument("--gencov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the genetic covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in whitespace-delimited .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal.")
 in_opts.add_argument("--residcov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the residual covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal. File must either be in whitespace-delimited .csv  or .npy")
 
@@ -840,10 +850,10 @@ input_formatting.add_argument('--a1_name',default='a1', type=str, help="Name of 
 input_formatting.add_argument('--a2_name',default='a2', type=str, help="Name of the column containing the non-effect allele of each SNP in the GWAS input. Default is \"a2\".")
 
 
-filter_opts = parser.add_argument_group(title="Filter Options", description="The input summary stastistics files can be filtered using the options below. Note that there is some default filtering according to sample size and allele frequency, following the recommendations we make in the corresponding paper. All of these column-based options allow a list of values to be passed of the same length as the number of traits ")
+filter_opts = parser.add_argument_group(title="Filter Options", description="The input summary statistics files can be filtered using the options below. Note that there is some default filtering according to sample size and allele frequency, following the recommendations we make in the corresponding paper. All of these column-based options allow a list of values to be passed of the same length as the number of traits ")
 filter_opts.add_argument("--include",default=None, metavar="SNPLIST1,SNPLIST2,..", type=str, help="Restricts MTAG analysis to the union of snps in the list of  snplists provided. The header line must match the SNP index that will be used to merge the GWAS input files.")
 filter_opts.add_argument("--exclude", "--excludeSNPs",default=None, metavar="SNPLIST1,SNPLIST2,..", type=str, help="Similar to the --include option, except that the union of SNPs found in the specified files will be excluded from MTAG. Both -exclude and -include may be simultaneously specified, but -exclude will take precedent (i.e., SNPs found in both the -include and -exclude SNP lists will be excluded).")
-filter_opts.add_argument('--only_chr', metavar="CHR_A,CHR_B,..", default=None, type=str, action="store", help="Restrict MTAG to SNPs on one of the listed, comma-separated chromosome. Can be specified simultaneously with --include and --exclude, but will take precedent over both. Not generally recommended. Multiple chromosome numbers should be seperated by commas without whitespace. If this option is specified, the GWAS summary statistics must also list the chromosome of each SNPs in a column named \`chr\`.")
+filter_opts.add_argument('--only_chr', metavar="CHR_A,CHR_B,..", default=None, type=str, action="store", help="Restrict MTAG to SNPs on one of the listed, comma-separated chromosome. Can be specified simultaneously with --include and --exclude, but will take precedent over both. Not generally recommended. Multiple chromosome numbers should be separated by commas without whitespace. If this option is specified, the GWAS summary statistics must also list the chromosome of each SNPs in a column named \`chr\`.")
 
 filter_opts.add_argument("--homogNs_frac", default=None, type=str, action="store", metavar="FRAC", help="Restricts to SNPs within FRAC of the mode of sample sizes for the SNPs as given by (N-Mode)/Mode < FRAC. This filter is not applied by default.")
 filter_opts.add_argument("--homogNs_dist", default=None, type=str, action="store", metavar="D", help="Restricts to SNPs within DIST (in sample size) of the mode of sample sizes for the SNPs. This filter is not applied by default.")
@@ -853,11 +863,12 @@ filter_opts.add_argument('--n_min', default=None, type=str, action='store', help
 filter_opts.add_argument('--n_max', default=None, type=str, action='store', help="set the maximum threshold for SNP sample size in input data. Not used by default. Any SNP that does not pass this threshold for any of the GWAS input statistics will not be included in MTAG.")
 filter_opts.add_argument("--info_min", default=None,type=str, help="Minimim info score for filtering SNPs for MTAG.")
 
-special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implict in each option are violated.")
+special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implicit in each option are violated.")
 special_cases.add_argument('--analytic_omega', default=False, action='store_true', help='Option to turn off the numerical estimation of the genetic VCV matrix in the presence of constant sample size within each GWAS, for which a closed-form solution exists. The default is to typically use the closed form solution as the starting point for the numerical solution to the maximum-likelihood genetic VCV, Use with caution! If any input GWAS does not have constant sample size, then the analytic solution employed here will not be a maximizer of the likelihood function.')
-special_cases.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary staistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
+special_cases.add_argument('--gmm_omega', default=False, action='store_true', help='Option to use the GMM estimator of the genetic VCV matrix. Much faster than using numerical estimation. This option is still being tested.')
+special_cases.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary statistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
 special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all phenotypes used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
-special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all phenotypes passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conejunction with --perfect_gencov')
+special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all phenotypes passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conjunction with --perfect_gencov')
 misc = parser.add_argument_group(title="Miscellaneous")
 
 misc.add_argument('--ld_ref_panel', default=None, action='store',metavar="FOLDER_PATH", type=str, help='Specify folder of the ld reference panel (split by chromosome) that will be used in the estimation of the error VCV (sigma). This option is passed to --ref-ld-chr and --w-ld-chr when running LD score regression. The default is to use the reference panel of LD scores computed from 1000 Genomes European subjects (eur_w_ld_chr) that is included with the distribution of MTAG')
