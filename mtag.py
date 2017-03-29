@@ -835,11 +835,13 @@ in_opts.add_argument("--sumstats", metavar="{File1},{File2}...", type=str, nargs
 in_opts.add_argument("--gencov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the genetic covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in whitespace-delimited .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal.")
 in_opts.add_argument("--residcov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the residual covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal. File must either be in whitespace-delimited .csv  or .npy")
 
-
 out_opts = parser.add_argument_group(title="Output formatting", description="Set the output directory and common name of prefix files.")
 
-out_opts.add_argument("--out", metavar="[DIR]/[PREFIX]", default="./mtag_results", type=str, help='Specify the directory and name prefix to output MTAG results. All mtag results will be prefixed with the corresponding tag. Default is ./mtag_results')
+out_opts.add_argument("--out", metavar='DIR/PREFIX', default='./mtag_results', type=str, help='Specify the directory and name prefix to output MTAG results. All mtag results will be prefixed with the corresponding tag. Default is ./mtag_results')
 out_opts.add_argument("--make_full_path", default=False, action="store_true", help="option to make output path specified in -out if it does not exist.")
+
+
+
 
 
 input_formatting = parser.add_argument_group(title="Column names of input files", description="These options manually pass the names of the relevant summary statistics columns used by MTAG. It is recommended to pass these names because only narrow searches for these columns are performed in the default cases. Moreover, it is necessary that these input files be readable by ldsc's munge_sumstats command.")
@@ -878,12 +880,13 @@ misc.add_argument('--ld_ref_panel', default=None, action='store',metavar="FOLDER
 misc.add_argument('--time_limit', default=100.,type=float, action="store", help="Set time limit (hours) on the numerical estimation of the variance covariance matrix for MTAG, after which the optimization routine will complete its current iteration and perform MTAG using the last iteration of the genetic VCV.")
 
 misc.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes, i.e., the weights 1/sqrt(2*MAF*(1-MAF)) are not applied when outputting MTAG results, where MAF is the minor allele frequency.")
-misc.add_argument("--tol", default=1e-7,type=float, help="Set the absolute tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of phenotypes.")
+misc.add_argument("--tol", default=1e-6,type=float, help="Set the absolute tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of phenotypes.")
 
 if __name__ == '__main__':
     start_t = time.time()
+    args = parser.parse_args()
     try:
-        mtag(parser.parse_args())
+        mtag(args)
     except Exception as e:
         logging.error(e,exc_info=True)
         logging.info('Analysis terminated from error at {T}'.format(T=time.ctime()))
