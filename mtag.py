@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import scipy.optimize
 import argparse
+import itertools
 import time
 import os, gzip, bz2, re
 import logging
@@ -132,10 +133,7 @@ def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
     '''
 
     # Create folder to store munge sumstats within output folder
-    args.munge_out = args.outdir+'ldsc_temp/'
 
-    if not os.path.isdir(args.munge_out):
-        safely_create_folder(args.munge_out)
     P=len(GWAS_filepaths)
 
     original_cols = merged_GWAS.columns
@@ -226,7 +224,7 @@ def load_and_merge_data(args):
     GWAS_d = dict()
     for p, GWAS_input in enumerate(GWAS_input_files):
         GWAS_d[p] = _read_GWAS_sumstats(GWAS_input).add_suffix(p)
-        logging.info('Read in Phenotype {} from {} ...'.format(p,GWAS_input))
+        logging.info('Read in Trait {}summary statistics from {} ...'.format(p+1,GWAS_input))
 
 
     ## Merge summary statistics of GWA studies by snp index
@@ -236,19 +234,48 @@ def load_and_merge_data(args):
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
         if p == 0:
             GWAS_all = GWAS_d[p]
-            logging.info('Trait {} summary statistics: \t {} SNPs remain.'.format(p+1, len(GWAS_d[p])))
+            logging.info('Trait {} summary statistics: \t {} SNPs.'.format(p+1, len(GWAS_d[p])))
 
+
+
+            #VALID_SNPS = {x for x in map(lambda y: ''.join(y), itertools.product(BASES, BASES)) if x[0] != x[1] and not STRAND_AMBIGUOUS[x]}
         else:
             GWAS_all = GWAS_all.merge(GWAS_d[p], how = 'inner', on=args.snp_name)
-            logging.info('Trait {} summary statistics: \t {} SNPs remain.'.format(p+1, len(GWAS_d[p])))
 
+            M_0 = len(GWAS_all)
+            logging.info('Trait {} summary statistics: \t {} SNPs remain.'.format(p+1, M_0))
+            if True:
+                snps_to_flip = np.logical_and(GWAS_all[args.a1_name+str(0)] == GWAS_all[args.a2_name+str(p)], GWAS_all[args.a2_name+str(0)] == GWAS_all[args.a1_name+str(p)])
+                GWAS_all['flip_snps'+str(p)]= snps_to_flip
 
+                logging.info('Columns after mergiong :{}'.format(GWAS_all.columns))
+                logging.info(GWAS_all.head(15))
+                snps_to_keep = np.logical_or(np.logical_and(GWAS_all[args.a1_name+str(0)]==GWAS_all[args.a1_name+str(p)], GWAS_all[args.a2_name+str(0)]==GWAS_all[args.a2_name+str(p)]), snps_to_flip)
 
+                GWAS_all = GWAS_all[snps_to_keep]
+                if len(GWAS_all) < M_0:
+                    logging.info('Dropped {} SNPs due to inconsistent allele pairs from phenotype {}. {} SNPs remain.'.format(M_0 - len(GWAS_all),p+1, len(GWAS_all)))
 
+                if np.sum(snps_to_flip) > 0:
+                    zz= args.z_name if args.z_name is not None else 'z'
+                    GWAS_all.loc[snps_to_flip, zz+str(p)] = -1*GWAS_all.loc[snps_to_flip, zz+str(p)]
+                    store_allele = GWAS_all.loc[snps_to_flip, args.a1_name+str(p)]
+                    GWAS_all.loc[snps_to_flip, args.a1_name+str(p)] = GWAS_all.loc[snps_to_flip, args.a2_name+str(p)]
+                    GWAS_all.loc[snps_to_flip, args.a2_name+str(p)] = store_allele
+                    logging.info('Flipped the signs of of {} SNPs to make them consistent with the effect allele orderings of the first trait.'.format(np.sum(snps_to_flip))) 
+        # tag strand ambiguous SNPs
+        logging.info(GWAS_all.head(15))
+        COMPLEMENT = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
+        # bases
+        BASES = COMPLEMENT.keys()
+        STRAND_AMBIGUOUS_SET = {''.join(x) for x in itertools.product(BASES, BASES) if x[0] != x[1] and x[0] == COMPLEMENT[x[1]]}
+        GWAS_all['strand_ambig'] = (GWAS_all[args.a1_name+str(0)].str.upper() + GWAS_all[args.a2_name+str(0)].str.upper()).isin(STRAND_AMBIGUOUS_SET)
 
+        if args.drop_ambig_snps:
+            M_0 = len(GWAS_all)
+            GWAS_all = GWAS_all[np.logical_not(GWAS_all['strand_ambig'])]
+            logging.info('Dropped {} SNPs due to strand ambiguity, {} SNPs remain.'.format(M_0-len(GWAS_all),len(GWAS_all)))
 
-
-            # TODO Check if reference alleles flipped
     logging.info('... Merge of GWAS summary statistics complete. Number of SNPs:\t {}'.format(len(GWAS_all)))
 
     GWAS_orig_cols = GWAS_all.columns
@@ -273,6 +300,16 @@ def load_and_merge_data(args):
             logging.info('(-exclude) Number of SNPs remaining after excluding to SNPs in {exclude_path}: \t {M} remain'.format(exclude_path=exclude_file,M=len(GWAS_all)))
 
     ## Perform munge using modified ldsc code.
+
+    args.munge_out = args.outdir+'ldsc_temp/'
+
+    if not os.path.isdir(args.munge_out):
+        safely_create_folder(args.munge_out)
+        #args.delete_ldtemp = True
+    else:
+        pass
+        #args.delete_ldtemp = False
+
 
     GWAS_all = _perform_munge(args, GWAS_all, GWAS_input_files,GWAS_d)
 
@@ -416,7 +453,7 @@ def extract_gwas_sumstats(DATA, args):
         # report restrictions
         mode_restrictions = 'Sample size restrictions close to mode:\n'
         for p in range(Ns.shape[1]):
-            mode_restrictions +="Phenotype {}: \t {} SNPs pass modal sample size filter".format(p+1,np.sum(N_nearMode[:,p]))
+            mode_restrictions +="Phenotype {}: \t {} SNPs pass modal sample size filter \n".format(p+1,np.sum(N_nearMode[:,p]))
 
         mode_restrictions+="Intersection of SNPs that pass modal sample size filter for all phenotypes:\t {}".format(np.sum(np.all(N_nearMode, axis=1)))
         logging.info(mode_restrictions)
@@ -616,7 +653,7 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
     elif args.analytic_omega: # analytic solution only.
 
-        return analytic_omega(Zs,Ns,sigma_LD)
+        return _posDef_adjustment(analytic_omega(Zs,Ns,sigma_LD))
 
     # want analytic solution
     if omega_in is None: # omega_in serves as starting point
@@ -812,7 +849,10 @@ def mtag(args):
     #5. Estimate Omega
 
     if args.gencov_path is None:
-        args.omega_hat = estimate_omega(args, Zs, Ns, args.sigma_hat)
+        if not args.drop_ambig_snps:
+            logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded dude to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
+        not_SA = np.logical_not(np.array(DATA['strand_ambig']))
+        args.omega_hat = estimate_omega(args, Zs[not_SA], Ns[not_SA], args.sigma_hat)
         logging.info('Completed estimation of Omega ...')
     else:
         args.omega_hat = _read_matrix(args.gencov_path)
@@ -867,6 +907,8 @@ filter_opts.add_argument('--maf_min', default='0.01', type=str, action='store', 
 filter_opts.add_argument('--n_min', default=None, type=str, action='store', help="set the minimum threshold for SNP sample size in input data. Default is 2/3*(90th percentile). Any SNP that does not pass this threshold for all of the GWAS input statistics will not be included in MTAG.")
 filter_opts.add_argument('--n_max', default=None, type=str, action='store', help="set the maximum threshold for SNP sample size in input data. Not used by default. Any SNP that does not pass this threshold for any of the GWAS input statistics will not be included in MTAG.")
 filter_opts.add_argument("--info_min", default=None,type=str, help="Minimim info score for filtering SNPs for MTAG.")
+filter_opts.add_argument("--drop_ambig_snps", default=False, action="store_true", help="Drop strand ambiguous SNPs when performing MTAG (they are already not used to estimate Omega or Sigma.")
+filter_opts.add_argument("--no_allele_flipping", default=False, action="store_true", help="Prevents flipping the effect sizes of summary statistics when the effect and non-effect alleles are reversed (reletive the first summary statistics file.")
 
 special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implicit in each option are violated.")
 special_cases.add_argument('--analytic_omega', default=False, action='store_true', help='Option to turn off the numerical estimation of the genetic VCV matrix in the presence of constant sample size within each GWAS, for which a closed-form solution exists. The default is to typically use the closed form solution as the starting point for the numerical solution to the maximum-likelihood genetic VCV, Use with caution! If any input GWAS does not have constant sample size, then the analytic solution employed here will not be a maximizer of the likelihood function.')
