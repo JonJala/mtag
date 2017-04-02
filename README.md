@@ -41,7 +41,7 @@ We will try our best to address any problems that one may encounter when using `
 1. Read the wiki, especially the tutorial and FAQ pages
 2. Read the desciption of the method in the paper listed below
 
-If that doesn't prove to be enlightening, then feel free to [contact us](mailto:maghzian@nber.org). The more information you provide about your problem, the more helpful we can be!
+If that doesn't prove to be enlightening, then feel free to post a question on our [Google Groups page](https://groups.google.com/forum/#!forum/mtag_users) or [contact us](mailto:maghzian@nber.org). The more information you provide about your problem, the more helpful we can be!
 
 ### Citation
 
