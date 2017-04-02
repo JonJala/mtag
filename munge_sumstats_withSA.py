@@ -16,7 +16,7 @@ np.seterr(invalid='ignore')
 import logging
 import itertools as it
 
-
+# Note: comments with #XX are ones that have been edited to streamline output
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--sumstats', default=None, type=str,
@@ -43,7 +43,7 @@ parser.add_argument('--daner', default=False, action='store_true',
                     help="Use this flag to parse Stephan Ripke's daner* file format.")
 parser.add_argument('--daner-n', default=False, action='store_true',
                     help="Use this flag to parse more recent daner* formatted files, which "
-		    "include sample size column 'Nca' and 'Nco'.")
+            "include sample size column 'Nca' and 'Nco'.")
 parser.add_argument('--no-alleles', default=False, action="store_true",
                     help="Don't require alleles. Useful if only unsigned summary statistics are available "
                     "and the goal is h2 / partitioned h2 estimation rather than rg estimation.")
@@ -351,7 +351,7 @@ def munge_GWASinput(args, p=True):
         tot_snps = 0
         dat_list = []
         msg = 'Reading sumstats from {F} into memory {N} SNPs at a time.'
-        logging.info(msg.format(F=args.sumstats, N=int(args.chunksize)))
+        #XX logging.info(msg.format(F=args.sumstats, N=int(args.chunksize)))
         drops = {'NA': 0, 'P': 0, 'INFO': 0,
                  'FRQ': 0, 'A': 0, 'SNP': 0, 'MERGE': 0}
         for block_num, dat in enumerate(dat_gen):
@@ -551,8 +551,7 @@ def munge_GWASinput(args, p=True):
         old = ii.sum()
         n_mismatch = (~match).sum()
         if n_mismatch < old:
-            logging.info('Removed {M} SNPs whose alleles did not match --merge-alleles ({N} SNPs remain).'.format(M=n_mismatch,
-                                                                                                             N=old - n_mismatch))
+            logging.info('Removed {M} SNPs whose alleles did not match --merge-alleles ({N} SNPs remain).'.format(M=n_mismatch, N=old - n_mismatch))
         else:
             raise ValueError(
                 'All SNPs have alleles that do not match --merge-alleles.')
@@ -560,7 +559,6 @@ def munge_GWASinput(args, p=True):
         dat.loc[~jj, [i for i in dat.columns if i != 'SNP']] = float('nan')
         dat.drop(['MA'], axis=1, inplace=True)
         return dat
-
 
 
     if args.out is None:
@@ -576,7 +574,7 @@ def munge_GWASinput(args, p=True):
                 '--no-alleles and --merge-alleles are not compatible.')
         if args.daner and args.daner_n:
             raise ValueError('--daner and --daner-n are not compatible. Use --daner for sample ' +
-	        'size from FRQ_A/FRQ_U headers, use --daner-n for values from Nca/Nco columns')
+            'size from FRQ_A/FRQ_U headers, use --daner-n for values from Nca/Nco columns')
 
         if p:
             defaults = vars(parser.parse_args(''))
@@ -588,7 +586,7 @@ def munge_GWASinput(args, p=True):
             options = ['--'+x.replace('_','-')+' '+str(opts[x])+' \\' for x in non_defaults]
             header += '\n'.join(options).replace('True','').replace('False','')
             header = header[0:-1]+'\n'
-            logging.info(header)
+            #XX logging.info(header)
 
 
         passed_df = isinstance(args.sumstats, pd.core.frame.DataFrame)
@@ -627,21 +625,21 @@ def munge_GWASinput(args, p=True):
 
             cname_map[frq_u] = 'FRQ'
 
-	if args.daner_n:
-	    frq_u = filter(lambda x: x.startswith('FRQ_U_'), file_cnames)[0]
-	    cname_map[frq_u] = 'FRQ'
-	    try:
-	        dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
-	    except ValueError:
-	        raise ValueError('Could not find Nca column expected for daner-n format')
+        if args.daner_n:
+            frq_u = filter(lambda x: x.startswith('FRQ_U_'), file_cnames)[0]
+            cname_map[frq_u] = 'FRQ'
+            try:
+                dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
+            except ValueError:
+                raise ValueError('Could not find Nca column expected for daner-n format')
 
-	    try:
-	        dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
-	    except ValueError:
-	        raise ValueError('Could not find Nco column expected for daner-n format')
+            try:
+                dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
+            except ValueError:
+                raise ValueError('Could not find Nco column expected for daner-n format')
 
             cname_map[dan_cas] = 'N_CAS'
-	    cname_map[dan_con] = 'N_CON'
+            cname_map[dan_con] = 'N_CON'
 
         cname_translation = {x: cname_map[clean_header(x)] for x in file_cnames if
                              clean_header(x) in cname_map}  # note keys not cleaned
@@ -674,15 +672,15 @@ def munge_GWASinput(args, p=True):
                 raise ValueError('Could not find {C} column.'.format(C=c))
 
         # check aren't any duplicated column names in mapping
-	for field in cname_translation:
-	    numk = file_cnames.count(field)
-	    if numk > 1:
-		raise ValueError('Found {num} columns named {C}'.format(C=field,num=str(numk)))
+        for field in cname_translation:
+            numk = file_cnames.count(field)
+            if numk > 1:
+                raise ValueError('Found {num} columns named {C}'.format(C=field,num=str(numk)))
 
         # check multiple different column names don't map to same data field
         for head in cname_translation.values():
             numc = cname_translation.values().count(head)
-	    if numc > 1:
+        if numc > 1:
                 raise ValueError('Found {num} different {C} columns'.format(C=head,num=str(numc)))
 
         if (not args.N) and (not (args.N_cas and args.N_con)) and ('N' not in cname_translation.values()) and\
@@ -697,8 +695,8 @@ def munge_GWASinput(args, p=True):
         if not args.no_alleles and not all(x in cname_translation.values() for x in ['A1', 'A2']):
             raise ValueError('Could not find A1/A2 columns.')
 
-        logging.info('Interpreting column names as follows:')
-        logging.info('\n'.join([x + ':\t' + cname_description[x]
+        # logging.info('munge_sumstats.py Interpreting column names as follows:')
+        logging.info('\nmunge_sumstats.py Interpreting column names as follows:'+'\n'.join([x + ':\t' + cname_description[x]
                            for x in cname_description]) + '\n')
 
         if args.merge_alleles:
@@ -759,14 +757,13 @@ def munge_GWASinput(args, p=True):
         if args.keep_maf and 'FRQ' in dat.columns:
             print_colnames.append('FRQ')
         msg = 'Writing summary statistics for {M} SNPs ({N} with nonmissing beta) to {F}.'
-        logging.info(
-            msg.format(M=len(dat), F=out_fname + '.gz', N=dat.N.notnull().sum()))
+        #XX logging.info( msg.format(M=len(dat), F=out_fname + '.gz', N=dat.N.notnull().sum()))
         if p:
             dat.to_csv(out_fname, sep="\t", index=False,
                        columns=print_colnames, float_format='%.3f')
             os.system('gzip -f {F}'.format(F=out_fname))
 
-        logging.info('\nMetadata:')
+        logging.info('Metadata from munge_sumstats:')
         CHISQ = (dat.Z ** 2)
         mean_chisq = CHISQ.mean()
         logging.info('Mean chi^2 = ' + str(round(mean_chisq, 3)))
@@ -785,9 +782,8 @@ def munge_GWASinput(args, p=True):
         logging.info(traceback.format_exc(ex))
         raise
     finally:
-        logging.info('\nConversion finished at {T}'.format(T=time.ctime()))
-        logging.info('Total time elapsed: {T}'.format(
-            T=sec_to_str(round(time.time() - START_TIME, 2))))
+        logging.info('Munging finished.'.format(T=time.ctime()))
+        #logging.info('Total time elapsed: {T}'.format(T=sec_to_str(round(time.time() - START_TIME, 2))))
 
 if __name__ == '__main__':
     args = parser.parse_args()

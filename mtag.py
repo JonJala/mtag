@@ -16,25 +16,36 @@ import munge_sumstats_withSA
 from ldsc_mod import munge_sumstats_withoutSA
 from ldsc_mod.ldscore import sumstats as sumstats_sig
 
-__version__ = '1.0.0'
+
+__version__ = '0.9.0'
+
+borderline = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>"
+
 header ="\n"
-header = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n"
+header += borderline +"\n"
 header += "<>\n"
 header += "<> MTAG: Multitrait Analysis of GWAS \n"
 header += "<> Version: {}\n".format(str(__version__))
 header += "<> (C) 2017 Omeed Maghzian, Raymond Walters, and Patrick Turley\n"
 header += "<> Harvard University Department of Economics / Broad Institute of MIT and Harvard\n"
 header += "<> GNU General Public License v3\n"
-header += "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><>\n"
-header += "\n"
+header += "<> ----------------BETA VERSION----------------\n"
+header += "<> Note: this tool is currently undergoing rapid revision \n"
+header += "<> and may still have critical bugs. It is recommended to run \n"
+header += "<> your own QC on the input before using this program. \n"
+header += "<> Please email us if you find any errors / are confused about \n"
+header += "<> anything! [Email maghzian@nber.org for bugs in the code.]\n"
+header += borderline +"\n"
+header += "\n\n"
 
 pd.set_option('display.max_rows', 500)
 pd.set_option('display.width', 800)
-pd.set_option('precision', 6)
+pd.set_option('precision', 12)
 pd.set_option('max_colwidth', 800)
+pd.set_option('colheader_justify', 'left')
 
 np.set_printoptions(linewidth=800)
-np.set_printoptions(precision=4)
+np.set_printoptions(precision=3)
 
 ## General helper functions
 def safely_create_folder(folder_path):
@@ -44,6 +55,14 @@ def safely_create_folder(folder_path):
         if not os.path.isdir(folder_path):
             raise
 
+class DisableLogger():
+    '''
+    For disabling the logging module when calling munge_sumstats
+    '''
+    def __enter__(self):
+       logging.disable(logging.CRITICAL)
+    def __exit__(self, a, b, c):
+       logging.disable(logging.NOTSET)
 
 ## Read / Write functions
 def _read_SNPlist(file_path, SNP_index):
@@ -69,7 +88,7 @@ def _read_matrix(file_path):
     ext = file_path[-4:]
     if ext == '.npy':
         return np.load(file_path)
-    if ext == '.csv':
+    if ext == '.txt':
         return np.loadtxt(file_path)
     else:
         raise ValueError("{} is not one of the acceptable file paths for reading in matrix-valued objects.")
@@ -174,10 +193,18 @@ def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
         argnames = Namespace(sumstats=GWAS_filepaths[p],N=None,N_cas=None,N_con=None,out=args.munge_out+'filtering',maf_min=maf_min_list[p], info_min =info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=n_min_list[p],chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=args.z_name, info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
 
         # filtering done with a modified version of munge sumstats that allows for strand ambiguous SNPs. This is a different file than the munge sumstats used in preparation to estimate sigma hat.
+        logging.info(borderline)
+        logging.info('Munging Trait {}  {}'.format(p+1,borderline[:-17]))
+        logging.info(borderline)
+        
         filtered_results = munge_sumstats_withSA.munge_GWASinput(argnames)
         merged_GWAS = merged_GWAS.merge(filtered_results, how='inner',left_on =args.snp_name,right_on='SNP',suffixes=('','_ss'))
         merged_GWAS = merged_GWAS[original_cols]
-        logging.info('Completed munging (modified ldsc code) of Phenotype {}...'.format(p))
+        
+        logging.info(borderline)
+        logging.info('Munging of Trait {} complete.'.format(p+1))
+        logging.info('Total SNPs remaining:\t {}'.format(len(merged_GWAS)))
+        logging.info(borderline+'\n')
 
     return merged_GWAS
 
@@ -217,15 +244,18 @@ def load_and_merge_data(args):
     TODO Add description
     Parses file names from MTAG command line arguments and returns the relevant used for method.
     '''
-    args.munge_out = args.outdir+'ldsc_temp/'
 
     GWAS_input_files = args.sumstats.split(',')
     P = len(GWAS_input_files)  # of phenotypes
     GWAS_d = dict()
     for p, GWAS_input in enumerate(GWAS_input_files):
         GWAS_d[p] = _read_GWAS_sumstats(GWAS_input).add_suffix(p)
-        logging.info('Read in Trait {}summary statistics from {} ...'.format(p+1,GWAS_input))
+        logging.info('Read in Trait {} summary statistics from {} ...'.format(p+1,GWAS_input))
 
+        # convert Alleles to uppercase
+        for col in [col+str(p) for col in [args.a1_name, args.a2_name]]:
+            GWAS_d[p][col] = GWAS_d[p][col].str.upper()
+            
 
     ## Merge summary statistics of GWA studies by snp index
     
@@ -235,9 +265,6 @@ def load_and_merge_data(args):
         if p == 0:
             GWAS_all = GWAS_d[p]
             logging.info('Trait {} summary statistics: \t {} SNPs.'.format(p+1, len(GWAS_d[p])))
-
-
-
             #VALID_SNPS = {x for x in map(lambda y: ''.join(y), itertools.product(BASES, BASES)) if x[0] != x[1] and not STRAND_AMBIGUOUS[x]}
         else:
             GWAS_all = GWAS_all.merge(GWAS_d[p], how = 'inner', on=args.snp_name)
@@ -248,8 +275,8 @@ def load_and_merge_data(args):
                 snps_to_flip = np.logical_and(GWAS_all[args.a1_name+str(0)] == GWAS_all[args.a2_name+str(p)], GWAS_all[args.a2_name+str(0)] == GWAS_all[args.a1_name+str(p)])
                 GWAS_all['flip_snps'+str(p)]= snps_to_flip
 
-                logging.info('Columns after mergiong :{}'.format(GWAS_all.columns))
-                logging.info(GWAS_all.head(15))
+                logging.debug('Columns after merging :{}'.format(GWAS_all.columns))
+                logging.debug(GWAS_all.head(15))
                 snps_to_keep = np.logical_or(np.logical_and(GWAS_all[args.a1_name+str(0)]==GWAS_all[args.a1_name+str(p)], GWAS_all[args.a2_name+str(0)]==GWAS_all[args.a2_name+str(p)]), snps_to_flip)
 
                 GWAS_all = GWAS_all[snps_to_keep]
@@ -264,7 +291,7 @@ def load_and_merge_data(args):
                     GWAS_all.loc[snps_to_flip, args.a2_name+str(p)] = store_allele
                     logging.info('Flipped the signs of of {} SNPs to make them consistent with the effect allele orderings of the first trait.'.format(np.sum(snps_to_flip))) 
         # tag strand ambiguous SNPs
-        logging.info(GWAS_all.head(15))
+        # logging.info(GWAS_all.head(15))
         COMPLEMENT = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
         # bases
         BASES = COMPLEMENT.keys()
@@ -301,7 +328,7 @@ def load_and_merge_data(args):
 
     ## Perform munge using modified ldsc code.
 
-    args.munge_out = args.outdir+'ldsc_temp/'
+    args.munge_out = args.out+'_ldsc_temp/'
 
     if not os.path.isdir(args.munge_out):
         safely_create_folder(args.munge_out)
@@ -569,6 +596,7 @@ def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
     solver_options['fatol'] = 1.0e-30
     solver_options['xatol'] = 1.0e-15
     solver_options['disp'] = False
+    solver_options['maxiter'] = P*250 if args.perfect_gencov else P*(P+1)*500
     if args.perfect_gencov:
         x_start = np.log(np.diag(omega_start))
     else:
@@ -577,9 +605,9 @@ def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
     opt_results = scipy.optimize.minimize(_omega_neglogL,x_start,args=(Zs,N_mats,sigma_LD,args),method='Nelder-Mead',options=solver_options)
 
     if args.perfect_gencov:
-        return np.sqrt(np.outer(np.exp(opt_results.x), np.exp(opt_results.x)))
+        return np.sqrt(np.outer(np.exp(opt_results.x), np.exp(opt_results.x))), opt_results
     else:
-        return rebuild_omega(opt_results.x)
+        return rebuild_omega(opt_results.x), opt_results
 
 def _omega_neglogL(x,Zs,N_mats,sigma_LD,args):
     if args.perfect_gencov:
@@ -636,15 +664,16 @@ def rebuild_omega(chol_elems, s=None):
 def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
 
-    start_time =time.time()
+    # start_time =time.time()
     logging.info('Beginning estimation of Omega ...')
     M,P = Zs.shape
     N_mats = np.sqrt(np.einsum('mp, mq -> mpq',Ns, Ns))
-    logL = lambda joint_probs: np.sum(np.log(joint_probs))
+    #logL = lambda joint_probs: np.sum(np.log(joint_probs))
     if args.perfect_gencov:
         if args.equal_h2:
             return np.ones((P,P))
         elif args.analytic_omega: # if both closed-form solution and solution with perfect covariance desired, then we compute closed form solution and return the outerproduct of the square root of the diagonal with itself.
+            logging.info('Using closed-form solution...')
             omega_hat = analytic_omega(Zs,Ns, sigma_LD)
             return np.sqrt(np.outer(np.diag(omega_hat),np.diag(omega_hat)))
 
@@ -659,17 +688,29 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
     if omega_in is None: # omega_in serves as starting point
         omega_in = _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
 
-    logL_list = [logL(jointEffect_probability(Zs,omega_in,sigma_LD,N_mats))]
+    #logL_list = [logL(jointEffect_probability(Zs,omega_in,sigma_LD,N_mats))]
     #print(omega_in)
     omega_hat = omega_in
-    while (time.time()-start_time)/3600 <= args.time_limit:
+    # num_iter =0
+    #while (time.time()-start_time)/3600 <= args.time_limit:
         # numerical solution
-        omega_hat = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
-        joint_prob = jointEffect_probability(Zs,omega_hat,sigma_LD,N_mats)
-        logL_list.append(logL(joint_prob))
+    #    logging.info('Iteration: {} ..'.format(num_iter))
+    omega_hat, opt_results = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
+    numerical_msg = "\n Numerical optimization of Omega complete:"
+    numerical_msg += "\nSuccessful termination? {}".format("Yes" if opt_results.success else "No")
+    numerical_msg += "\nTermination message:\t{}".format(opt_results.message)
+    numerical_msg += "\nCompleted in {} iterations".format(opt_results.nit)
+    logging.info(numerical_msg)
+
+
+
+    #joint_prob = jointEffect_probability(Zs,omega_hat,sigma_LD,N_mats)
+        # logL_list.append(logL(joint_prob))
+    #    num_iter += 1
         # check that logL increasing
-        if np.abs(logL_list[-1]-logL_list[-2]) < args.tol:
-            break
+
+    #    if np.abs(logL_list[-1]-logL_list[-2]) < args.tol:
+     #       break
 
     return omega_hat
 
@@ -739,7 +780,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         if args.std_betas:
             weights = np.ones(M,dtype=float)
         else:
-            weights = np.sqrt(2*Fs[:,p]*(1. - Fs[:,p]))
+            weights = np.sqrt( 2*Fs[:,p]*(1. - Fs[:,p]))
         out_df['mtag_beta'] = mtag_betas[:,p] / weights
         out_df['mtag_se'] = mtag_se[:,p] / weights
 
@@ -747,39 +788,49 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         out_df['mtag_pval'] = p_values(out_df['mtag_z'])
 
         if P == 1:
-            out_path = args.out +'_phenotype.csv'
+            out_path = args.out +'_phenotype.txt'
         else:
-            out_path = args.out +'_phenotype_' + str(p+1) + '.csv'
+            out_path = args.out +'_phenotype_' + str(p+1) + '.txt'
         out_df.to_csv(out_path,sep='\t', index=False)
 
     if not args.equal_h2:
         omega_out = "\nEstimated Omega:\n"
         omega_out += str(args.omega_hat)
-        np.savetxt(args.out +'_omega_hat.csv',args.omega_hat, delimiter ='\t')
+        omega_out += '\n'
+        np.savetxt(args.out +'_omega_hat.txt',args.omega_hat, delimiter ='\t')
     else:
         omega_out = "Omega hat not computed because --equal_h2 was used.\n"
 
 
     sigma_out = "\nEstimated Sigma:\n"
     sigma_out += str(args.sigma_hat)
-    np.savetxt( args.out +'_sigma_hat.csv',args.sigma_hat, delimiter ='\t')
+    sigma_out += '\n'
+    np.savetxt( args.out +'_sigma_hat.txt',args.sigma_hat, delimiter ='\t')
 
     summary_df = pd.DataFrame(index=np.arange(1,P+1))
-    input_phenotypes = [ '.../'+f[:16] if len(f) > 20 else f for f in args.sumstats.split(',')]
+    input_phenotypes = [ '...'+f[-16:] if len(f) > 20 else f for f in args.sumstats.split(',')]
+
+    
+
     for p in range(P):
 
-        summary_df.loc[p+1,'Phenotype'] = input_phenotypes[p]
-        summary_df.loc[p+1, 'n (max)'] = np.max(Ns[:,p])
-        summary_df.loc[p+1, 'n (mean)'] = np.mean(Ns[:,p])
-        summary_df.loc[p+1, '# SNPs used'] = len(Zs[:,p])
+        summary_df.loc[p+1,'Trait'] = input_phenotypes[p]
+        summary_df.loc[p+1, 'N (max)'] = np.max(Ns[:,p])
+        summary_df.loc[p+1, 'N (mean)'] = np.mean(Ns[:,p])
+        summary_df.loc[p+1, '# SNPs used'] = int(len(Zs[:,p]))
         summary_df.loc[p+1, 'GWAS mean chi^2'] = np.mean(np.square(Zs[:,p])) / args.sigma_hat[p,p]
         Z_mtag = mtag_betas[:,p]/mtag_se[:,p]
         summary_df.loc[p+1, 'MTAG mean chi^2'] = np.mean(np.square(Z_mtag))
-        summary_df.loc[p+1, 'GWAS equivalent N'] = summary_df.loc[p+1, 'n (max)']*(summary_df.loc[p+1, 'MTAG mean chi^2'] - 1) / (summary_df.loc[p+1, 'GWAS mean chi^2'] - 1)
+        summary_df.loc[p+1, 'GWAS equiv. (max) N'] = int(summary_df.loc[p+1, 'n (max)']*(summary_df.loc[p+1, 'MTAG mean chi^2'] - 1) / (summary_df.loc[p+1, 'GWAS mean chi^2'] - 1))
 
-    final_summary = "Summary of MTAG results:\n"
+    summary_df['N (max)'] = summary_df['N (max)'].astype(int)
+    summary_df['N (mean)'] = summary_df['N (mean)'].astype(int)
+    summary_df['# SNPs used'] = summary_df['# SNPs used'].astype(int)
+    summary_df['GWAS equiv. (max) N'] = summary_df['GWAS equiv. (max) N'].astype(int)
+
+    final_summary = "\nSummary of MTAG results:\n"
     final_summary +="------------------------\n"
-    final_summary += str(summary_df)+'\n'
+    final_summary += str(summary_df.round(3))+'\n'
     final_summary += omega_out
     final_summary += sigma_out
 
@@ -840,17 +891,35 @@ def mtag(args):
 
     #4. Estimate Sigma
     if args.residcov_path is None:
-        args.sigma_hat = estimate_sigma(DATA, args)
+        logging.info('Estimating sigma..')
+        if args.verbose:
+            args.sigma_hat = estimate_sigma(DATA, args)
+        else:
+            with DisableLogger():
+                args.sigma_hat = estimate_sigma(DATA, args)
+
     else:
         args.sigma_hat = _read_matrix(args.residcov_path)
     args.sigm_hat = _posDef_adjustment(args.sigma_hat)
     logging.info('Sigma hat:\n{}'.format(args.sigm_hat))
     
+    ## Warning of low chi2:
+
+    G_mean_c2_adj = np.mean(np.square(Zs),axis=0) / np.diag(args.sigma_hat)
+    low_c2 = G_mean_c2_adj < 1.1
+    if np.any(low_c2):
+        low_c2_msg = 'Mean chi^2 of SNPs used to estimate Omega is low for'
+        low_c2_msg += 'Traits {}'.format(' '.join(np.arange(1,args.P+1)[low_c2])) if np.sum(low_c2) > 1 else 'Trait {}'.format(' '.join(np.arange(1,args.P+1)[low_c2]))
+        low_c2_msg += '(= {})'.format(' '.join(G_mean_c2_adj[low_c2]))
+        low_c2_msg += 'MTAG may not perform well in this situation.'
+        logging.info(low_c2_msg)
+
+
     #5. Estimate Omega
 
     if args.gencov_path is None:
         if not args.drop_ambig_snps:
-            logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded dude to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
+            logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded due to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
         not_SA = np.logical_not(np.array(DATA['strand_ambig']))
         args.omega_hat = estimate_omega(args, Zs[not_SA], Ns[not_SA], args.sigma_hat)
         logging.info('Completed estimation of Omega ...')
@@ -872,8 +941,8 @@ parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of 
 
 in_opts = parser.add_argument_group(title='Input Files', description="Input files to be used by MTAG. The --sumstats option is required, while using the other two options take priority of their corresponding estimation routines, if used.")
 in_opts.add_argument("--sumstats", metavar="{File1},{File2}...", type=str, nargs='?',required=False, help='Specify the list of summary statistics files to perform multitrait analysis. Multiple files paths must be separated by \",\". Please read the documentation  to find the up-to-date set of acceptable file formats. A general guideline is that any files you pass into MTAG should also be parsable by ldsc and you should take the additional step of specifying the names of the main columns below to avoid reading errors.')
-in_opts.add_argument("--gencov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the genetic covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in whitespace-delimited .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal.")
-in_opts.add_argument("--residcov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the residual covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in .csv  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal. File must either be in whitespace-delimited .csv  or .npy")
+in_opts.add_argument("--gencov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the genetic covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in whitespace-delimited .txt  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal.")
+in_opts.add_argument("--residcov_path",metavar="FILE_PATH", default=None, action="store", help="If specified, will read in the residual covariance matrix saved in the file path below and skip the estimation routine. The rows and columns of the matrix must correspond to the order of the GWAS input files specified. FIles can either be in .txt  or .npy format. Use with caution as the genetic covariance matrix specified will be weakly nonoptimal. File must either be in whitespace-delimited .txt  or .npy")
 
 out_opts = parser.add_argument_group(title="Output formatting", description="Set the output directory and common name of prefix files.")
 
@@ -912,7 +981,6 @@ filter_opts.add_argument("--no_allele_flipping", default=False, action="store_tr
 
 special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implicit in each option are violated.")
 special_cases.add_argument('--analytic_omega', default=False, action='store_true', help='Option to turn off the numerical estimation of the genetic VCV matrix in the presence of constant sample size within each GWAS, for which a closed-form solution exists. The default is to typically use the closed form solution as the starting point for the numerical solution to the maximum-likelihood genetic VCV, Use with caution! If any input GWAS does not have constant sample size, then the analytic solution employed here will not be a maximizer of the likelihood function.')
-special_cases.add_argument('--gmm_omega', default=False, action='store_true', help='Option to use the GMM estimator of the genetic VCV matrix. Much faster than using numerical estimation. This option is still being tested.')
 special_cases.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary statistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
 special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all phenotypes used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
 special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all phenotypes passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conjunction with --perfect_gencov')
@@ -923,6 +991,15 @@ misc.add_argument('--time_limit', default=100.,type=float, action="store", help=
 
 misc.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes, i.e., the weights 1/sqrt(2*MAF*(1-MAF)) are not applied when outputting MTAG results, where MAF is the minor allele frequency.")
 misc.add_argument("--tol", default=1e-6,type=float, help="Set the absolute tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of phenotypes.")
+
+to_add = parser.add_argument_group(title="Options to add", description="Options that will (probably) in newer versions in mtag. PLEASE DO NOT USE ANY OF THESE OPTIONS. They either (i) do nothing (ii) give errors, or (iii) have not been seriously tested.")
+to_add.add_argument('--gmm_omega', default=False, action='store_true', help='Option to use the GMM estimator of the genetic VCV matrix. Much faster than using numerical estimation. This option is still being tested.')
+to_add.add_argument('--cc_Z', default=None, metavar="pval_name", action='store', help="Option to use Z-scores backed out by the p-values in the input summary statistics. The --z_name column will be used to determine the sign of the effect. Useful when you would like to apply MTAG to case-control GWAS results but the p-values are derived from likelihood ratio tests. Must give --cc_Z the name of the column containing the p-values in each file.")
+to_add.add_argument('--verbose', default=False, action='store_true', help='When used, will include output from running ldsc scripts as well additional information (such as optimization routine information.')
+
+
+
+
 
 if __name__ == '__main__':
     start_t = time.time()
