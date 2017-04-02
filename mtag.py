@@ -594,7 +594,7 @@ def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
     M,P = Zs.shape
     solver_options = dict()
     solver_options['fatol'] = 1.0e-30
-    solver_options['xatol'] = 1.0e-15
+    solver_options['xatol'] = 1.0e-7 if args.perfect_gencov else 1.0e-15 
     solver_options['disp'] = False
     solver_options['maxiter'] = P*250 if args.perfect_gencov else P*(P+1)*500
     if args.perfect_gencov:
@@ -686,7 +686,8 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
     # want analytic solution
     if omega_in is None: # omega_in serves as starting point
-        omega_in = _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
+        omega_in = np.zeros((P,P))
+        omega_in[np.diag_indices(P)] = np.diag(gmm_omega(Zs,Ns,sigma_LD))
 
     #logL_list = [logL(jointEffect_probability(Zs,omega_in,sigma_LD,N_mats))]
     #print(omega_in)
@@ -821,7 +822,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         summary_df.loc[p+1, 'GWAS mean chi^2'] = np.mean(np.square(Zs[:,p])) / args.sigma_hat[p,p]
         Z_mtag = mtag_betas[:,p]/mtag_se[:,p]
         summary_df.loc[p+1, 'MTAG mean chi^2'] = np.mean(np.square(Z_mtag))
-        summary_df.loc[p+1, 'GWAS equiv. (max) N'] = int(summary_df.loc[p+1, 'n (max)']*(summary_df.loc[p+1, 'MTAG mean chi^2'] - 1) / (summary_df.loc[p+1, 'GWAS mean chi^2'] - 1))
+        summary_df.loc[p+1, 'GWAS equiv. (max) N'] = int(summary_df.loc[p+1, 'N (max)']*(summary_df.loc[p+1, 'MTAG mean chi^2'] - 1) / (summary_df.loc[p+1, 'GWAS mean chi^2'] - 1))
 
     summary_df['N (max)'] = summary_df['N (max)'].astype(int)
     summary_df['N (mean)'] = summary_df['N (mean)'].astype(int)
