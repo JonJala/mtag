@@ -593,8 +593,8 @@ def analytic_omega(Zs,Ns,sigma_LD):
 def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
     M,P = Zs.shape
     solver_options = dict()
-    solver_options['fatol'] = 1.0e-30
-    solver_options['xatol'] = 1.0e-7 if args.perfect_gencov else 1.0e-15 
+    solver_options['fatol'] = 1.0e-8
+    solver_options['xatol'] = args.tol 
     solver_options['disp'] = False
     solver_options['maxiter'] = P*250 if args.perfect_gencov else P*(P+1)*500
     if args.perfect_gencov:
@@ -684,6 +684,8 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
         return _posDef_adjustment(analytic_omega(Zs,Ns,sigma_LD))
 
+    elif args.gmm_omega:
+        return _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
     # want analytic solution
     if omega_in is None: # omega_in serves as starting point
         omega_in = np.zeros((P,P))
@@ -772,7 +774,7 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     M,P  = mtag_betas.shape
 
     for p in range(P):
-        logging.info('Writing Phenotype {} to file ...'.format(p))
+        logging.info('Writing Phenotype {} to file ...'.format(p+1))
         out_df = results_template.copy()
         out_df[args.z_name] = Zs[:,p]
         out_df[args.n_name] = Ns[:,p]
@@ -991,7 +993,7 @@ misc.add_argument('--ld_ref_panel', default=None, action='store',metavar="FOLDER
 misc.add_argument('--time_limit', default=100.,type=float, action="store", help="Set time limit (hours) on the numerical estimation of the variance covariance matrix for MTAG, after which the optimization routine will complete its current iteration and perform MTAG using the last iteration of the genetic VCV.")
 
 misc.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes, i.e., the weights 1/sqrt(2*MAF*(1-MAF)) are not applied when outputting MTAG results, where MAF is the minor allele frequency.")
-misc.add_argument("--tol", default=1e-6,type=float, help="Set the absolute tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of phenotypes.")
+misc.add_argument("--tol", default=1e-6,type=float, help="Set the relative (x) tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of phenotypes.")
 
 to_add = parser.add_argument_group(title="Options to add", description="Options that will (probably) in newer versions in mtag. PLEASE DO NOT USE ANY OF THESE OPTIONS. They either (i) do nothing (ii) give errors, or (iii) have not been seriously tested.")
 to_add.add_argument('--gmm_omega', default=False, action='store_true', help='Option to use the GMM estimator of the genetic VCV matrix. Much faster than using numerical estimation. This option is still being tested.')
