@@ -158,6 +158,9 @@ def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
     original_cols = merged_GWAS.columns
 
     # n_min maf_min info_min
+
+    zz= args.z_name if args.z_name is not None else 'z'
+
     if args.n_min is not None:
         n_min_list = [float(x) for x in args.n_min.split(',')]
         if len(n_min_list) == 1:
@@ -190,7 +193,7 @@ def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
         if args.info_min is None:
             ignore_list += "info"
 
-        argnames = Namespace(sumstats=GWAS_filepaths[p],N=None,N_cas=None,N_con=None,out=args.munge_out+'filtering',maf_min=maf_min_list[p], info_min =info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=n_min_list[p],chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=args.z_name+',0', info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
+        argnames = Namespace(sumstats=GWAS_filepaths[p],N=None,N_cas=None,N_con=None,out=args.munge_out+'filtering',maf_min=maf_min_list[p], info_min =info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=n_min_list[p],chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=zz+',0', info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
 
         # filtering done with a modified version of munge sumstats that allows for strand ambiguous SNPs. This is a different file than the munge sumstats used in preparation to estimate sigma hat.
         logging.info(borderline)
