@@ -851,9 +851,6 @@ def mtag(args):
 
     # args.outdir = args.outdir if args.outdir[-1] in ['/','\\'] else args.outdir + '/'
 
-    if args.ld_ref_panel is None:
-        mtag_path = re.findall(".*/",__file__)[0]
-        args.ld_ref_panel = mtag_path+'ld_ref_panel/eur_w_ld_chr/'
 
 
      ## Instantiate log file and masthead
@@ -868,6 +865,11 @@ def mtag(args):
     header_sub += '\n'.join(options).replace('True','').replace('False','')
     header_sub = header_sub[0:-1] + '\n'
 
+    if args.ld_ref_panel is None:
+        mtag_path = re.findall(".*/",__file__)[0]
+        args.ld_ref_panel = mtag_path+'ld_ref_panel/eur_w_ld_chr/'
+
+        
     start_time = time.time()  # starting time of analysis
     # take output directory from --out path
     try :
