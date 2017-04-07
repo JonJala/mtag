@@ -794,9 +794,9 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         out_df['mtag_pval'] = p_values(out_df['mtag_z'])
 
         if P == 1:
-            out_path = args.out +'_phenotype.txt'
+            out_path = args.out +'trait.txt'
         else:
-            out_path = args.out +'_phenotype_' + str(p+1) + '.txt'
+            out_path = args.out +'trait_' + str(p+1) + '.txt'
         out_df.to_csv(out_path,sep='\t', index=False)
 
     if not args.equal_h2:
