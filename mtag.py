@@ -249,7 +249,7 @@ def load_and_merge_data(args):
     '''
 
     GWAS_input_files = args.sumstats.split(',')
-    P = len(GWAS_input_files)  # of phenotypes
+    P = len(GWAS_input_files)  # of phenotypes/traits
     GWAS_d = dict()
     for p, GWAS_input in enumerate(GWAS_input_files):
         GWAS_d[p] = _read_GWAS_sumstats(GWAS_input).add_suffix(p)
@@ -485,7 +485,7 @@ def extract_gwas_sumstats(DATA, args):
         for p in range(Ns.shape[1]):
             mode_restrictions +="Phenotype {}: \t {} SNPs pass modal sample size filter \n".format(p+1,np.sum(N_nearMode[:,p]))
 
-        mode_restrictions+="Intersection of SNPs that pass modal sample size filter for all phenotypes:\t {}".format(np.sum(np.all(N_nearMode, axis=1)))
+        mode_restrictions+="Intersection of SNPs that pass modal sample size filter for all traits:\t {}".format(np.sum(np.all(N_nearMode, axis=1)))
         logging.info(mode_restrictions)
         N_passFilter = np.logical_and(N_passFilter, np.all(N_nearMode,axis=1))
 
@@ -494,7 +494,7 @@ def extract_gwas_sumstats(DATA, args):
         N_passMax = Ns <= args.n_max
         for p in range(Ns.shape[1]):
             n_max_restrictions +=  "Phenotype {}: \t {} SNPs pass modal sample size filter".format(p+1,np.sum(N_passMax[:,p]))
-        n_max_restrictions += "Intersection of SNPs that pass maximum sample size filter for all phenotypes:\t {}".format(np.sum(np.all(N_passMax, axis=1)))
+        n_max_restrictions += "Intersection of SNPs that pass maximum sample size filter for all traits:\t {}".format(np.sum(np.all(N_passMax, axis=1)))
         logging.info(n_max_restrictions)
         N_passFilter = np.logical_and(N_passFilter, np.all(N_passMax,axis=1))
 
@@ -990,15 +990,15 @@ filter_opts.add_argument("--no_allele_flipping", default=False, action="store_tr
 special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implicit in each option are violated.")
 special_cases.add_argument('--analytic_omega', default=False, action='store_true', help='Option to turn off the numerical estimation of the genetic VCV matrix in the presence of constant sample size within each GWAS, for which a closed-form solution exists. The default is to typically use the closed form solution as the starting point for the numerical solution to the maximum-likelihood genetic VCV, Use with caution! If any input GWAS does not have constant sample size, then the analytic solution employed here will not be a maximizer of the likelihood function.')
 special_cases.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary statistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
-special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all phenotypes used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
-special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all phenotypes passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conjunction with --perfect_gencov')
+special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all traits used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
+special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all traits passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conjunction with --perfect_gencov')
 misc = parser.add_argument_group(title="Miscellaneous")
 
 misc.add_argument('--ld_ref_panel', default=None, action='store',metavar="FOLDER_PATH", type=str, help='Specify folder of the ld reference panel (split by chromosome) that will be used in the estimation of the error VCV (sigma). This option is passed to --ref-ld-chr and --w-ld-chr when running LD score regression. The default is to use the reference panel of LD scores computed from 1000 Genomes European subjects (eur_w_ld_chr) that is included with the distribution of MTAG')
 misc.add_argument('--time_limit', default=100.,type=float, action="store", help="Set time limit (hours) on the numerical estimation of the variance covariance matrix for MTAG, after which the optimization routine will complete its current iteration and perform MTAG using the last iteration of the genetic VCV.")
 
 misc.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes, i.e., the weights 1/sqrt(2*MAF*(1-MAF)) are not applied when outputting MTAG results, where MAF is the minor allele frequency.")
-misc.add_argument("--tol", default=1e-6,type=float, help="Set the relative (x) tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of phenotypes.")
+misc.add_argument("--tol", default=1e-6,type=float, help="Set the relative (x) tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of traits.")
 
 to_add = parser.add_argument_group(title="Options to add", description="Options that will (probably) in newer versions in mtag. PLEASE DO NOT USE ANY OF THESE OPTIONS. They either (i) do nothing (ii) give errors, or (iii) have not been seriously tested.")
 to_add.add_argument('--gmm_omega', default=False, action='store_true', help='Option to use the GMM estimator of the genetic VCV matrix. Much faster than using numerical estimation. This option is still being tested.')
