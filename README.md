@@ -4,6 +4,8 @@
 
 ## Getting Started 
 
+We recommend installing the [Anaconda python distribution](https://www.continuum.io/downloads) as it includes all of the packages listed above. It also makes updating packages relatively painless with the `conda update` command.
+
 To run `mtag`, you will need to have Python 2.7 installed with the following packages:
 
 * `numpy`
@@ -12,7 +14,7 @@ To run `mtag`, you will need to have Python 2.7 installed with the following pac
 * `argparse` 
 * `bitarray` (for `ldsc`)
 
-We recommend installing the [Aaconda python distribution](https://www.continuum.io/downloads) as it includes all of the packages listed above. It also makes updating packages relatively painless with the `conda update` command.
+
 
 `mtag` may be downloaded by cloning this github repository:
 
