@@ -749,9 +749,12 @@ def mtag_analysis(args, Zs, Ns, omega_hat, sigma_LD):
         beta_denom = np.einsum('mp,p->m',np.einsum('q,mqp->mp',yy,inv_xx),yy)
         mtag_betas[:,p] = np.einsum('mp,mp->m',np.einsum('q,mqp->mp',yy,inv_xx), W_inv_Z) / beta_denom
 
-        inv_xx_S_inv_xx = np.einsum('mpq,mqr->mpr',np.einsum('mpq,mqr->mpr',inv_xx,Sigma_N), inv_xx)
-        var_denom = np.square(np.einsum('mq,q->m',np.einsum('p,mpq->mq',yy,inv_xx),yy))
-        mtag_var_p = np.einsum('mq,q->m',np.einsum('p,mpq ->mq',yy,inv_xx_S_inv_xx),yy) / var_denom
+
+        # inv_xx_S_inv_xx = np.einsum('mpq,mqr->mpr',np.einsum('mpq,mqr->mpr',inv_xx,Sigma_N), inv_xx)
+        # var_denom = np.square(np.einsum('mq,q->m',np.einsum('p,mpq->mq',yy,inv_xx),yy))
+        var_denom = np.einsum('mq,q->m',np.einsum('p,mpq->mq',yy,inv_xx),yy)
+
+        mtag_var_p = 1. / var_denom
 
         mtag_se[:,p] = np.sqrt(mtag_var_p)
 
@@ -916,9 +919,9 @@ def mtag(args):
     G_mean_c2_adj = np.mean(np.square(Zs),axis=0) / np.diag(args.sigma_hat)
     low_c2 = G_mean_c2_adj < 1.1
     if np.any(low_c2):
-        low_c2_msg = 'Mean chi^2 of SNPs used to estimate Omega is low for'
-        low_c2_msg += 'Traits {}'.format(' '.join(np.arange(1,args.P+1)[low_c2])) if np.sum(low_c2) > 1 else 'Trait {}'.format(' '.join(np.arange(1,args.P+1)[low_c2]))
-        low_c2_msg += '(= {})'.format(' '.join(G_mean_c2_adj[low_c2]))
+        low_c2_msg = 'Mean chi^2 of SNPs used to estimate Omega is low for some SNPs'
+        #low_c2_msg += 'Traits {}'.format(' '.join(np.arange(1,args.P+1)[low_c2])) if np.sum(low_c2) > 1 else 'Trait {}'.format(' '.join(np.arange(1,args.P+1)[low_c2]))
+        #low_c2_msg += '(= {})'.format(' '.join(G_mean_c2_adj[low_c2]))
         low_c2_msg += 'MTAG may not perform well in this situation.'
         logging.info(low_c2_msg)
 
