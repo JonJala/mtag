@@ -265,9 +265,25 @@ def load_and_merge_data(args):
     for p in range(P):
         GWAS_d[p] =GWAS_d[p].rename(columns={x+str(p):x for x in GWAS_d[p].columns})
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
+
+        # Drop SNPs that are missing or duplicated
+        missing_snps = GWAS_d[p][args.snp_name].isin(['.'])
+        M0 = len(GWAS_d[p])
+        GWAS_d[p] = GWAS_d[p][np.logical_not(missing_snps)]
+        if M0-len(GWAS_d[p]) > 0:
+            logging.info('Trait {}: Dropped {} SNPs for missing values in the "snp_name" column'.format(p+1, M0-len(GWAS_d[p])))
+
+        # drop snps that are duplicated
+        duplicate_snps = GWAS_d[p].duplicated(subset=args.snp_name, keep='first')
+        M0 = len(GWAS_d[p])
+        GWAS_d[p] = GWAS_d[p][np.logical_not( duplicate_snps )]
+        if M0-len(GWAS_d[p]) > 0:
+            logging.info('Trait {}: Dropped {} SNPs for duplicate values in the "snp_name" column'.format(p+1, M0-len(GWAS_d[p])))
+
+
         if p == 0:
             GWAS_all = GWAS_d[p]
-            logging.info('Trait {} summary statistics: \t {} SNPs.'.format(p+1, len(GWAS_d[p])))
+            #logging.info('Trait {} summary statistics: \t {} SNPs.'.format(p+1, len(GWAS_d[p])))
             #VALID_SNPS = {x for x in map(lambda y: ''.join(y), itertools.product(BASES, BASES)) if x[0] != x[1] and not STRAND_AMBIGUOUS[x]}
         else:
             GWAS_all = GWAS_all.merge(GWAS_d[p], how = 'inner', on=args.snp_name)
