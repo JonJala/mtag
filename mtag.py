@@ -740,7 +740,7 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 ## MTAG CALCULATION ####
 ########################
 
-def mtag_analysis(args, Zs, Ns, omega_hat, sigma_LD):
+def mtag_analysis(Zs, Ns, omega_hat, sigma_LD):
     logging.info('Beginning MTAG calculations...')
     M,P = Zs.shape
 
@@ -956,7 +956,7 @@ def mtag(args):
 
     assert args.omega_hat.shape[0] == args.omega_hat.shape[1] == Zs.shape[1] == args.sigma_hat.shape[0] == args.sigma_hat.shape[1]
     #6. Perform MTAG
-    mtag_betas, mtag_se = mtag_analysis(args, Zs,Ns,args.omega_hat, args.sigma_hat)
+    mtag_betas, mtag_se = mtag_analysis(Zs, Ns, args.omega_hat, args.sigma_hat)
     #7. Output GWAS_results
     save_mtag_results(args, res_temp,Zs,Ns, Fs,mtag_betas,mtag_se)
 
