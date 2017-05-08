@@ -696,6 +696,9 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
             omega_hat = analytic_omega(Zs,Ns, sigma_LD)
             return np.sqrt(np.outer(np.diag(omega_hat),np.diag(omega_hat)))
 
+        elif args.gmm_omega: 
+            omega_hat = _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
+            return np.sqrt(np.outer(np.diag(omega_hat), np.diag(omega_hat)))
     # XXX add --gmm_omega implementation
 
 
@@ -813,9 +816,9 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
         out_df['mtag_pval'] = p_values(out_df['mtag_z'])
 
         if P == 1:
-            out_path = args.out +'trait.txt'
+            out_path = args.out +'_trait.txt'
         else:
-            out_path = args.out +'trait_' + str(p+1) + '.txt'
+            out_path = args.out +'_trait_' + str(p+1) + '.txt'
         out_df.to_csv(out_path,sep='\t', index=False)
 
     if not args.equal_h2:
