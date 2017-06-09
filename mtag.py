@@ -422,6 +422,7 @@ def _posDef_adjustment(mat, scaling_factor=0.99,max_it=1000):
     scaling_factor: the multiplicative factor that all off-diagonal elements of the matrix are scaled by in the second step of the procedure.
     max_it: max number of iterations set so that 
     '''
+    logging.info('Checking for positive definiteness ..')
     assert mat.ndim == 2
     assert mat.shape[0] == mat.shape[1]
     is_pos_semidef = lambda m: np.all(np.linalg.eigvals(m) >= 0)
@@ -589,8 +590,8 @@ def jointEffect_probability(Z_score, omega_hat, sigma_hat,N_mats, S=None):
 
     return jointProbs
 
-
 def gmm_omega(Zs, Ns, sigma_LD):
+    logging.info('--gmm_omega using ..')
     N_mats = np.sqrt(np.einsum('mp,mq->mpq', Ns,Ns))
     Z_outer = np.einsum('mp,mq->mpq',Zs, Zs)
     return np.mean((Z_outer - sigma_LD) / N_mats, axis=0)
@@ -686,6 +687,7 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
     logging.info('Beginning estimation of Omega ...')
     M,P = Zs.shape
     N_mats = np.sqrt(np.einsum('mp, mq -> mpq',Ns, Ns))
+
     #logL = lambda joint_probs: np.sum(np.log(joint_probs))
     if args.perfect_gencov:
         if args.equal_h2:
@@ -712,8 +714,6 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
         omega_in = np.zeros((P,P))
         omega_in[np.diag_indices(P)] = np.diag(gmm_omega(Zs,Ns,sigma_LD))
 
-    #logL_list = [logL(jointEffect_probability(Zs,omega_in,sigma_LD,N_mats))]
-    #print(omega_in)
     omega_hat = omega_in
     # num_iter =0
     #while (time.time()-start_time)/3600 <= args.time_limit:
@@ -793,9 +793,12 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     snp_name z n maf mtag_beta mtag_se mtag_zscore mtag_pval
 
    '''
-    p_values = lambda z: 2*(1.0-scipy.stats.norm.cdf(np.abs(z)))
+    p_values = lambda z: 2*(scipy.stats.norm.cdf(-1.*np.abs(z)))
 
     M,P  = mtag_betas.shape
+
+    if args.std_betas:
+        logging.info('Outputting standardized betas..')
 
     for p in range(P):
         logging.info('Writing Phenotype {} to file ...'.format(p+1))
@@ -837,7 +840,6 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     summary_df = pd.DataFrame(index=np.arange(1,P+1))
     input_phenotypes = [ '...'+f[-16:] if len(f) > 20 else f for f in args.sumstats.split(',')]
 
-    
 
     for p in range(P):
 
