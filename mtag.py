@@ -12,10 +12,12 @@ import time
 import os, gzip, bz2, re
 import logging
 from argparse import Namespace
-import munge_sumstats_withSA
-from ldsc_mod import munge_sumstats_withoutSA
+#import munge_sumstats_withSA
+#from ldsc_mod import munge_sumstats_withoutSA
 from ldsc_mod.ldscore import sumstats as sumstats_sig
 
+
+import munge_sumstats
 
 __version__ = '0.9.0'
 
@@ -73,12 +75,14 @@ def _read_SNPlist(file_path, SNP_index):
         raise ValueError("SNPlist read from {} does include --snp_name {} in its columns.".format(file_path, SNP_index))
     return pd.read_csv(file_path, header=0, index_col=False)
 
-def _read_GWAS_sumstats(GWAS_file):
+def _read_GWAS_sumstats(GWAS_file_name):
     '''
     read GWAS summary statistics from file that is in one of the acceptable formats.
     '''
     # TODO read more file types
-    return  pd.read_csv(GWAS_file, index_col=False, header=0,delim_whitespace=True)
+    (openfunc, compression) = munge_sumstats.get_compression(args.sumstats)
+    return  pd.read_csv(GWAS_file_name, index_col=False, header=0,delim_whitespace=True, compression=compression, na_values=['.','NA'],
+        iterator=True, chunksize=args.chunksize)
 
 
 def _read_matrix(file_path):
@@ -108,22 +112,6 @@ def sec_to_str(t):
     f += '{S}s'.format(S=s)
     return f
 
-def get_compression(fh):
-    '''
-    Code from ldsc/munge_sumstats.py
-    Read filename suffixes and figure out whether it is gzipped,bzip2'ed or not compressed
-    '''
-    if fh.endswith('gz'):
-        compression = 'gzip'
-        openfunc = gzip.open
-    elif fh.endswith('bz2'):
-        compression = 'bz2'
-        openfunc = bz2.BZ2File
-    else:
-        openfunc = open
-        compression = None
-
-    return openfunc, compression
 
 
 class Logger_to_Logging(object):
@@ -874,13 +862,12 @@ def mtag(args):
     if args.equal_h2 and not args.perfect_gencov:
         raise ValueError("--equal_h2 option used without --perfect_gencov. To use --equal_h2, --perfect_gencov must be also be included.")
 
-
     # args.outdir = args.outdir if args.outdir[-1] in ['/','\\'] else args.outdir + '/'
 
 
 
      ## Instantiate log file and masthead
-    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
+    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d% I:%M:%S %p')
 
     header_sub = header
     header_sub += "Calling ./mtag.py \\\n"
@@ -980,10 +967,6 @@ out_opts = parser.add_argument_group(title="Output formatting", description="Set
 out_opts.add_argument("--out", metavar='DIR/PREFIX', default='./mtag_results', type=str, help='Specify the directory and name prefix to output MTAG results. All mtag results will be prefixed with the corresponding tag. Default is ./mtag_results')
 out_opts.add_argument("--make_full_path", default=False, action="store_true", help="option to make output path specified in -out if it does not exist.")
 
-
-
-
-
 input_formatting = parser.add_argument_group(title="Column names of input files", description="These options manually pass the names of the relevant summary statistics columns used by MTAG. It is recommended to pass these names because only narrow searches for these columns are performed in the default cases. Moreover, it is necessary that these input files be readable by ldsc's munge_sumstats command.")
 input_formatting.add_argument("--snp_name", default="snpid", action="store",type=str, help="Name of the single column that provides the unique identifier for SNPs in the GWAS summary statistics across all GWAS results. Default is \"snpid\". This the index that will be used to merge the GWAS summary statistics. Any SNP lists passed to ---include or --exclude should also contain the same name.")
 input_formatting.add_argument("--z_name", default=None, help="The common name of the column of Z scores across all input files. Default is to search for columns beginning with the lowercase letter z.")
@@ -1027,8 +1010,8 @@ to_add = parser.add_argument_group(title="Options to add", description="Options 
 to_add.add_argument('--gmm_omega', default=False, action='store_true', help='Option to use the GMM estimator of the genetic VCV matrix. Much faster than using numerical estimation. This option is still being tested.')
 to_add.add_argument('--cc_Z', default=None, metavar="pval_name", action='store', help="Option to use Z-scores backed out by the p-values in the input summary statistics. The --z_name column will be used to determine the sign of the effect. Useful when you would like to apply MTAG to case-control GWAS results but the p-values are derived from likelihood ratio tests. Must give --cc_Z the name of the column containing the p-values in each file.")
 to_add.add_argument('--verbose', default=False, action='store_true', help='When used, will include output from running ldsc scripts as well additional information (such as optimization routine information.')
-
-
+parser.add_argument('--chunksize', default=5e6, type=int,
+                    help='Chunksize for reading in data.')
 
 
 
