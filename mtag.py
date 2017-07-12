@@ -9,15 +9,16 @@ import scipy.optimize
 import argparse
 import itertools
 import time
-import os, gzip, bz2, re
+import os, sys, gzip, bz2, re
 import logging
 from argparse import Namespace
-import munge_sumstats_withSA
-from ldsc_mod import munge_sumstats_withoutSA
+
 from ldsc_mod.ldscore import sumstats as sumstats_sig
+from ldsc_mod.ldscore import allele_info
 
+import ldsc_mod.munge_sumstats as munge_sumstats
 
-__version__ = '0.9.0'
+__version__ = '0.9.5'
 
 borderline = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>"
 
@@ -73,13 +74,18 @@ def _read_SNPlist(file_path, SNP_index):
         raise ValueError("SNPlist read from {} does include --snp_name {} in its columns.".format(file_path, SNP_index))
     return pd.read_csv(file_path, header=0, index_col=False)
 
-def _read_GWAS_sumstats(GWAS_file):
+def _read_GWAS_sumstats(GWAS_file_name):
     '''
     read GWAS summary statistics from file that is in one of the acceptable formats.
     '''
     # TODO read more file types
-    return  pd.read_csv(GWAS_file, index_col=False, header=0,delim_whitespace=True)
+    (openfunc, compression) = munge_sumstats.get_compression(args.sumstats)
+    dat_gen = pd.read_csv(GWAS_file_name, index_col=False, header=0,delim_whitespace=True, compression=compression, na_values=['.','NA'],
+        iterator=True, chunksize=args.chunksize)
+    dat_gen = list(dat_gen)
+    dat_gen_unfiltered = pd.concat(dat_gen, axis=0).reset_index(drop=True)
 
+    return  dat_gen_unfiltered, dat_gen
 
 def _read_matrix(file_path):
     '''
@@ -108,24 +114,6 @@ def sec_to_str(t):
     f += '{S}s'.format(S=s)
     return f
 
-def get_compression(fh):
-    '''
-    Code from ldsc/munge_sumstats.py
-    Read filename suffixes and figure out whether it is gzipped,bzip2'ed or not compressed
-    '''
-    if fh.endswith('gz'):
-        compression = 'gzip'
-        openfunc = gzip.open
-    elif fh.endswith('bz2'):
-        compression = 'bz2'
-        openfunc = bz2.BZ2File
-    else:
-        openfunc = open
-        compression = None
-
-    return openfunc, compression
-
-
 class Logger_to_Logging(object):
     """
     Logger class that write uses logging module and is needed to use munge_sumstats or ldsc from the LD score package.
@@ -137,78 +125,33 @@ class Logger_to_Logging(object):
     def log(self,x):
         logging.info(x)
 
-def _perform_munge(args, merged_GWAS, GWAS_filepaths,GWAS_initial_input):
-    '''
-    Wrapper for use of modified munge_sumstats function from ldsc package. Creates ld_temp folder within specified output file path to store munge sumstats, which may be accessed by
+def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
 
-    Parameters
-    ----------
-    args : argparse.Namespace
-        Options passed through `mtag` wrapper function.
-    merged_GWAS : pd.Dataframe
-        The merged set of GWAS summary statistics after the `-include` and `-exclude` SNP list filters have been applied.
-    GWAS_files : dict
-        Dictionary of the full set of GWAS summary statistics read in (before merges to other SNP lists). Keys are `range(P)` where P is the number summary statistics files read in. Values are Pandas DataFrame objects.
-    '''
-
-    # Create folder to store munge sumstats within output folder
-
-    P=len(GWAS_filepaths)
-
-    original_cols = merged_GWAS.columns
-
-    # n_min maf_min info_min
-
+    original_cols = GWAS_df.columns
+    merge_alleles = None
+    out=None
     zz= args.z_name if args.z_name is not None else 'z'
+    ignore_list = ""
+    if args.info_min is None:
+        ignore_list += "info"
 
-    if args.n_min is not None:
-        n_min_list = [float(x) for x in args.n_min.split(',')]
-        if len(n_min_list) == 1:
-            n_min_list = n_min_list * P
-    else:
-        n_min_list = [None]*P
+    # sumstats is set to null because generator passed manually
+    argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=zz+',0', info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
+
+    logging.info(borderline)
+    logging.info('Munging Trait {}  {}'.format(p+1,borderline[:-17]))
+    logging.info(borderline)
+
+
+    munged_results = munge_sumstats.munge_sumstats(argnames, write_out=False, new_log=False)
+    GWAS_df = GWAS_df.merge(munged_results, how='inner',left_on =args.snp_name,right_on='SNP',suffixes=('','_ss'))
+    GWAS_df = GWAS_df[original_cols]
     
-    if args.maf_min is not None:
-        maf_min_list = [float(x) for x in args.maf_min.split(',')]
-        if len(maf_min_list) == 1:
-            maf_min_list = maf_min_list * P
-    else:
-        maf_min_list = [None]*P
+    logging.info(borderline)
+    logging.info('Munging of Trait {} complete. SNPs remaining:\t {}'.format(p+1, len(GWAS_df)))
+    logging.info(borderline+'\n')
 
-    if args.info_min is not None:
-        info_min_list = [float(x) for x in args.info_min.split(',')]
-        if len(info_min_list) == 1:
-            info_min_list = info_min_list * P
-    else:
-        info_min_list = [None]*P
-
-
-
-    for p in range(P):
-        merge_alleles=None
-
-        # Default minimum n is the same as it is for munge sumstats
-        ignore_list = ""
-        if args.info_min is None:
-            ignore_list += "info"
-
-        argnames = Namespace(sumstats=GWAS_filepaths[p],N=None,N_cas=None,N_con=None,out=args.munge_out+'filtering',maf_min=maf_min_list[p], info_min =info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=n_min_list[p],chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=zz+',0', info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
-
-        # filtering done with a modified version of munge sumstats that allows for strand ambiguous SNPs. This is a different file than the munge sumstats used in preparation to estimate sigma hat.
-        logging.info(borderline)
-        logging.info('Munging Trait {}  {}'.format(p+1,borderline[:-17]))
-        logging.info(borderline)
-        
-        filtered_results = munge_sumstats_withSA.munge_GWASinput(argnames)
-        merged_GWAS = merged_GWAS.merge(filtered_results, how='inner',left_on =args.snp_name,right_on='SNP',suffixes=('','_ss'))
-        merged_GWAS = merged_GWAS[original_cols]
-        
-        logging.info(borderline)
-        logging.info('Munging of Trait {} complete.'.format(p+1))
-        logging.info('Total SNPs remaining:\t {}'.format(len(merged_GWAS)))
-        logging.info(borderline+'\n')
-
-    return merged_GWAS
+    return GWAS_df, munged_results
 
 def _quick_mode(ndarray,axis=0):
     '''
@@ -249,46 +192,73 @@ def load_and_merge_data(args):
 
     GWAS_input_files = args.sumstats.split(',')
     P = len(GWAS_input_files)  # of phenotypes/traits
+    if args.n_min is not None:
+        args.n_min_list = [float(x) for x in args.n_min.split(',')]
+        if len(args.n_min_list) == 1:
+            args.n_min_list = args.n_min_list * P
+    else:
+        args.n_min_list = [None]*P
+    
+    if args.maf_min is not None:
+        args.maf_min_list = [float(x) for x in args.maf_min.split(',')]
+        if len(args.maf_min_list) == 1:
+            args.maf_min_list = args.maf_min_list * P
+    else:
+        args.maf_min_list = [None]*P
+
+    if args.info_min is not None:
+        args.info_min_list = [float(x) for x in args.info_min.split(',')]
+        if len(args.info_min_list) == 1:
+            args.info_min_list = args.info_min_list * P
+    else:
+        args.info_min_list = [None]*P
+
+
+
     GWAS_d = dict()
+    sumstats_format = dict()
     for p, GWAS_input in enumerate(GWAS_input_files):
-        GWAS_d[p] = _read_GWAS_sumstats(GWAS_input).add_suffix(p)
-        logging.info('Read in Trait {} summary statistics from {} ...'.format(p+1,GWAS_input))
+        GWAS_d[p], gwas_dat_gen = _read_GWAS_sumstats(GWAS_input)
+        # add suffix 
+        logging.info('Read in Trait {} summary statistics ({} SNPs) from {} ...'.format(p+1,len(GWAS_d[p]), GWAS_input))
+
+        # perform munge sumstats
+        GWAS_d[p], sumstats_format[p] = _perform_munge(args, GWAS_d[p], gwas_dat_gen, p)
+        GWAS_d[p] = GWAS_d[p].add_suffix(p)
 
         # convert Alleles to uppercase
         for col in [col+str(p) for col in [args.a1_name, args.a2_name]]:
             GWAS_d[p][col] = GWAS_d[p][col].str.upper()
             
-
-    ## Merge summary statistics of GWA studies by snp index
-    
-    for p in range(P):
         GWAS_d[p] =GWAS_d[p].rename(columns={x+str(p):x for x in GWAS_d[p].columns})
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
 
         # Drop SNPs that are missing or duplicated
-        missing_snps = GWAS_d[p][args.snp_name].isin(['.'])
+        missing_snps = GWAS_d[p][args.snp_name].isin(['NA','.'])
         M0 = len(GWAS_d[p])
         GWAS_d[p] = GWAS_d[p][np.logical_not(missing_snps)]
         if M0-len(GWAS_d[p]) > 0:
             logging.info('Trait {}: Dropped {} SNPs for missing values in the "snp_name" column'.format(p+1, M0-len(GWAS_d[p])))
 
         # drop snps that are duplicated
-        duplicate_snps = GWAS_d[p].duplicated(subset=args.snp_name, keep='first')
+
         M0 = len(GWAS_d[p])
-        GWAS_d[p] = GWAS_d[p][np.logical_not( duplicate_snps )]
+        GWAS_d[p] = GWAS_d[p].drop_duplicates(subset=args.snp_name, keep='first')
         if M0-len(GWAS_d[p]) > 0:
             logging.info('Trait {}: Dropped {} SNPs for duplicate values in the "snp_name" column'.format(p+1, M0-len(GWAS_d[p])))
 
+    ## Merge summary statistics of GWA studies by snp index
+    
+    for p in range(P):
 
         if p == 0:
             GWAS_all = GWAS_d[p]
-            #logging.info('Trait {} summary statistics: \t {} SNPs.'.format(p+1, len(GWAS_d[p])))
-            #VALID_SNPS = {x for x in map(lambda y: ''.join(y), itertools.product(BASES, BASES)) if x[0] != x[1] and not STRAND_AMBIGUOUS[x]}
+
         else:
             GWAS_all = GWAS_all.merge(GWAS_d[p], how = 'inner', on=args.snp_name)
 
             M_0 = len(GWAS_all)
-            logging.info('Trait {} summary statistics: \t {} SNPs remain.'.format(p+1, M_0))
+            logging.info('Trait {} summary statistics: \t {} SNPs remaining merging with previous traits.'.format(p+1, M_0))
             if True:
                 snps_to_flip = np.logical_and(GWAS_all[args.a1_name+str(0)] == GWAS_all[args.a2_name+str(p)], GWAS_all[args.a2_name+str(0)] == GWAS_all[args.a1_name+str(p)])
                 GWAS_all['flip_snps'+str(p)]= snps_to_flip
@@ -310,12 +280,9 @@ def load_and_merge_data(args):
                     logging.info('Flipped the signs of of {} SNPs to make them consistent with the effect allele orderings of the first trait.'.format(np.sum(snps_to_flip))) 
         # tag strand ambiguous SNPs
         # logging.info(GWAS_all.head(15))
-        COMPLEMENT = {'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C'}
-        # bases
-        BASES = COMPLEMENT.keys()
-        STRAND_AMBIGUOUS_SET = {''.join(x) for x in itertools.product(BASES, BASES) if x[0] != x[1] and x[0] == COMPLEMENT[x[1]]}
-        GWAS_all['strand_ambig'] = (GWAS_all[args.a1_name+str(0)].str.upper() + GWAS_all[args.a2_name+str(0)].str.upper()).isin(STRAND_AMBIGUOUS_SET)
+        STRAND_AMBIGUOUS_SET = [x for x in allele_info.STRAND_AMBIGUOUS.keys() if allele_info.STRAND_AMBIGUOUS[x]]
 
+        GWAS_all['strand_ambig'] = (GWAS_all[args.a1_name+str(0)].str.upper() + GWAS_all[args.a2_name+str(0)].str.upper()).isin(STRAND_AMBIGUOUS_SET)
         if args.drop_ambig_snps:
             M_0 = len(GWAS_all)
             GWAS_all = GWAS_all[np.logical_not(GWAS_all['strand_ambig'])]
@@ -344,20 +311,6 @@ def load_and_merge_data(args):
             GWAS_all = GWAS_all.loc[:,GWAS_orig_cols]
             logging.info('(-exclude) Number of SNPs remaining after excluding to SNPs in {exclude_path}: \t {M} remain'.format(exclude_path=exclude_file,M=len(GWAS_all)))
 
-    ## Perform munge using modified ldsc code.
-
-    args.munge_out = args.out+'_ldsc_temp/'
-
-    if not os.path.isdir(args.munge_out):
-        safely_create_folder(args.munge_out)
-        #args.delete_ldtemp = True
-    else:
-        pass
-        #args.delete_ldtemp = False
-
-
-    GWAS_all = _perform_munge(args, GWAS_all, GWAS_input_files,GWAS_d)
-
 
     ## Parse chromosomes
     if args.only_chr is not None:
@@ -370,48 +323,51 @@ def load_and_merge_data(args):
 
     return GWAS_all, args
 
+
 def estimate_sigma(data_df, args):
     sigma_hat = np.empty((args.P,args.P))
-    save_paths_premunge = dict()
-    save_paths_postmunge = dict()
+
+    args.munge_out = args.out+'_ldsc_temp/'
     # Creates data files for munging
     # Munge data
     ignore_list = ""
     if args.info_min is None:
         ignore_list += "info"
 
+    gwas_ss_df = dict()
+
     for p in range(args.P):
         logging.info('Preparing phenotype {} to estimate sigma'.format(p))
-        single_colnames = [col for col in data_df.columns if col[-1] == str(p) or col in args.snp_name]
 
-        gwas_filtered_df = data_df[single_colnames]
-        gwas_filtered_df= gwas_filtered_df.rename(columns={args.snp_name:args.snp_name+str(p)})
-        gwas_filtered_df.columns = [col[:-1] for col in gwas_filtered_df.columns]
+        ld_ss_name = {args.snp_name        : 'SNP',
+                      args.a1_name + str(p):  'A1',
+                      args.a2_name + str(p):  'A2',
+                      args.z_name + str(p):   'Z',
+                      args.n_name + str(p):   'N',
+                      args.eaf_name + str(p): 'FRQ'}
+
+        # single_colnames = [col for col in data_df.columns if col[-1] == str(p) or col in args.snp_name]
+        gwas_ss_df[p] = data_df[ld_ss_name.keys()].copy()
+       
+        # gwas_filtered_df= gwas_filtered_df.rename(columns={args.snp_name:args.snp_name+str(p)})
+        gwas_ss_df[p] = gwas_ss_df[p].rename(columns=ld_ss_name)
         ## remove phenotype index from names
 
-
-        save_paths_premunge[p] = args.munge_out + '_sigma_est_preMunge' +str(p) +'.csv'
-        save_paths_postmunge[p] = args.munge_out + '_sigma_est_postMunge' + str(p)
-        gwas_filtered_df.to_csv(save_paths_premunge[p], sep='\t',index=False)
-
-        # we can manually many of the munge filters because the summary statistics have already been filtered.
-        args_munge_sigma = Namespace(sumstats=save_paths_premunge[p],N=None,N_cas=None,N_con=None,out=save_paths_postmunge[p],maf_min=0, info_min =0.9,daner=False, no_alleles=False, merge_alleles=None,n_min=0,chunksize=1e7, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=args.z_name+',0',info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False)
-        munge_sumstats_withoutSA.munge_sumstats(args_munge_sigma)
 
     # run ldsc
     for p1 in range(args.P):
         for p2 in range (p1,args.P): #TODO make p1->p1+1 and use h2 estimates
             if (p1 == p2 and args.no_overlap) or not args.no_overlap:
                 h2_files = None
-                rg_files = '{X}.sumstats.gz,{Y}.sumstats.gz'.format(X=save_paths_postmunge[p1],Y=save_paths_postmunge[p2])
-                rg_out = '{}_rg_{}_{}'.format(args.munge_out, p1,p2)
-                args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=args.maf_min,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False)
+                # rg_files = '{X}.sumstats.gz,{Y}.sumstats.gz'.format(X=save_paths_postmunge[p1],Y=save_paths_postmunge[p2])
+                rg_files = args.sumstats # only the file name matters
+                rg_out = '{}_rg_misc'.format(args.out)
+                args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=args.maf_min,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[gwas_ss_df[p1], gwas_ss_df[p2]], rg_mat=False)
                 rg_results =  sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())[0]
+
                 sigma_hat[p1,p2] = rg_results.gencov.intercept
                 sigma_hat[p2,p1] = sigma_hat[p1,p2]
-
-
-
+                logging.info('Completed rg of trait {}-{}'.format(p1+1,p2+1))
 
     return sigma_hat
 
@@ -447,8 +403,6 @@ def _posDef_adjustment(mat, scaling_factor=0.99,max_it=1000):
         else:
             logging.info('Completed in {} iterations'.format(n))
         return mat
-
-
 
 def extract_gwas_sumstats(DATA, args):
     '''
@@ -591,7 +545,7 @@ def jointEffect_probability(Z_score, omega_hat, sigma_hat,N_mats, S=None):
     return jointProbs
 
 def gmm_omega(Zs, Ns, sigma_LD):
-    logging.info('--gmm_omega using ..')
+    logging.info('Using GMM estimator of Omega ..')
     N_mats = np.sqrt(np.einsum('mp,mq->mpq', Ns,Ns))
     Z_outer = np.einsum('mp,mq->mpq',Zs, Zs)
     return np.mean((Z_outer - sigma_LD) / N_mats, axis=0)
@@ -685,59 +639,53 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
     # start_time =time.time()
     logging.info('Beginning estimation of Omega ...')
+    
     M,P = Zs.shape
     N_mats = np.sqrt(np.einsum('mp, mq -> mpq',Ns, Ns))
+    
+
+    if args.perfect_gencov and args.equal_h2:
+        logging.info('--perfect_gencov and --equal_h2 option used')
+        return np.ones((P,P))
+
+    if args.numerical_omega:
+        if omega_in is None: # omega_in serves as starting point
+            omega_in = np.zeros((P,P))
+            omega_in[np.diag_indices(P)] = np.diag(gmm_omega(Zs,Ns,sigma_LD))
+
+        omega_hat = omega_in
+       
+        omega_hat, opt_results = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
+        numerical_msg = "\n Numerical optimization of Omega complete:"
+        numerical_msg += "\nSuccessful termination? {}".format("Yes" if opt_results.success else "No")
+        numerical_msg += "\nTermination message:\t{}".format(opt_results.message)
+        numerical_msg += "\nCompleted in {} iterations".format(opt_results.nit)
+        logging.info(numerical_msg)
+        return omega_hat
+
+
 
     #logL = lambda joint_probs: np.sum(np.log(joint_probs))
     if args.perfect_gencov:
-        if args.equal_h2:
-            return np.ones((P,P))
-        elif args.analytic_omega: # if both closed-form solution and solution with perfect covariance desired, then we compute closed form solution and return the outerproduct of the square root of the diagonal with itself.
+        # if args.equal_h2: # already covered above.
+        #     return np.ones((P,P))
+        if args.analytic_omega: # if both closed-form solution and solution with perfect covariance desired, then we compute closed form solution and return the outerproduct of the square root of the diagonal with itself.
             logging.info('Using closed-form solution...')
             omega_hat = analytic_omega(Zs,Ns, sigma_LD)
             return np.sqrt(np.outer(np.diag(omega_hat),np.diag(omega_hat)))
 
-        elif args.gmm_omega: 
+        else: # gmm_omega
             omega_hat = _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
             return np.sqrt(np.outer(np.diag(omega_hat), np.diag(omega_hat)))
-    # XXX add --gmm_omega implementation
 
 
     elif args.analytic_omega: # analytic solution only.
 
         return _posDef_adjustment(analytic_omega(Zs,Ns,sigma_LD))
 
-    elif args.gmm_omega:
-        return _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
-    # want analytic solution
-    if omega_in is None: # omega_in serves as starting point
-        omega_in = np.zeros((P,P))
-        omega_in[np.diag_indices(P)] = np.diag(gmm_omega(Zs,Ns,sigma_LD))
-
-    omega_hat = omega_in
-    # num_iter =0
-    #while (time.time()-start_time)/3600 <= args.time_limit:
-        # numerical solution
-    #    logging.info('Iteration: {} ..'.format(num_iter))
-    omega_hat, opt_results = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
-    numerical_msg = "\n Numerical optimization of Omega complete:"
-    numerical_msg += "\nSuccessful termination? {}".format("Yes" if opt_results.success else "No")
-    numerical_msg += "\nTermination message:\t{}".format(opt_results.message)
-    numerical_msg += "\nCompleted in {} iterations".format(opt_results.nit)
-    logging.info(numerical_msg)
-
-
-
-    #joint_prob = jointEffect_probability(Zs,omega_hat,sigma_LD,N_mats)
-        # logL_list.append(logL(joint_prob))
-    #    num_iter += 1
-        # check that logL increasing
-
-    #    if np.abs(logL_list[-1]-logL_list[-2]) < args.tol:
-     #       break
-
-    return omega_hat
-
+    # else: gmm_omega (default)
+    return _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
+   
 ########################
 ## MTAG CALCULATION ####
 ########################
@@ -767,9 +715,6 @@ def mtag_analysis(Zs, Ns, omega_hat, sigma_LD):
         beta_denom = np.einsum('mp,p->m',np.einsum('q,mqp->mp',yy,inv_xx),yy)
         mtag_betas[:,p] = np.einsum('mp,mp->m',np.einsum('q,mqp->mp',yy,inv_xx), W_inv_Z) / beta_denom
 
-
-        # inv_xx_S_inv_xx = np.einsum('mpq,mqr->mpr',np.einsum('mpq,mqr->mpr',inv_xx,Sigma_N), inv_xx)
-        # var_denom = np.square(np.einsum('mq,q->m',np.einsum('p,mpq->mq',yy,inv_xx),yy))
         var_denom = np.einsum('mq,q->m',np.einsum('p,mpq->mq',yy,inv_xx),yy)
 
         mtag_var_p = 1. / var_denom
@@ -874,13 +819,10 @@ def mtag(args):
     if args.equal_h2 and not args.perfect_gencov:
         raise ValueError("--equal_h2 option used without --perfect_gencov. To use --equal_h2, --perfect_gencov must be also be included.")
 
-
-    # args.outdir = args.outdir if args.outdir[-1] in ['/','\\'] else args.outdir + '/'
-
-
-
      ## Instantiate log file and masthead
-    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
+    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d% I:%M:%S %p')
+    if args.stream_stdout:
+        logging.getLogger().addHandler(logging.StreamHandler()) # prints to console
 
     header_sub = header
     header_sub += "Calling ./mtag.py \\\n"
@@ -895,7 +837,6 @@ def mtag(args):
         mtag_path = re.findall(".*/",__file__)[0]
         args.ld_ref_panel = mtag_path+'ld_ref_panel/eur_w_ld_chr/'
 
-        
     start_time = time.time()  # starting time of analysis
     # take output directory from --out path
     try :
@@ -914,28 +855,32 @@ def mtag(args):
     logging.info(header_sub)
     logging.info("Beginning MTAG analysis...")
 
-     #2. Load Data and perform restrictions
+    # 2. Load Data and perform restrictions
     DATA, args = load_and_merge_data(args)
-
-    #3. Extract core information from combined GWAS data
+    
+    # 3. Extract core information from combined GWAS data
     Zs , Ns ,Fs, res_temp, DATA = extract_gwas_sumstats(DATA,args)
+    
 
-    #4. Estimate Sigma
+    if not args.drop_ambig_snps:
+        logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded due to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
+    not_SA = np.logical_not(np.array(DATA['strand_ambig']))
+        
+    # 4. Estimate Sigma
     if args.residcov_path is None:
         logging.info('Estimating sigma..')
         if args.verbose:
-            args.sigma_hat = estimate_sigma(DATA, args)
+            args.sigma_hat = estimate_sigma(DATA[not_SA], args)
         else:
             with DisableLogger():
-                args.sigma_hat = estimate_sigma(DATA, args)
+                args.sigma_hat = estimate_sigma(DATA[not_SA], args)
 
     else:
         args.sigma_hat = _read_matrix(args.residcov_path)
     args.sigm_hat = _posDef_adjustment(args.sigma_hat)
     logging.info('Sigma hat:\n{}'.format(args.sigm_hat))
     
-    ## Warning of low chi2:
-
+   
     G_mean_c2_adj = np.mean(np.square(Zs),axis=0) / np.diag(args.sigma_hat)
     low_c2 = G_mean_c2_adj < 1.1
     if np.any(low_c2):
@@ -949,8 +894,6 @@ def mtag(args):
     #5. Estimate Omega
 
     if args.gencov_path is None:
-        if not args.drop_ambig_snps:
-            logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded due to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
         not_SA = np.logical_not(np.array(DATA['strand_ambig']))
         args.omega_hat = estimate_omega(args, Zs[not_SA], Ns[not_SA], args.sigma_hat)
         logging.info('Completed estimation of Omega ...')
@@ -959,14 +902,16 @@ def mtag(args):
 
 
     assert args.omega_hat.shape[0] == args.omega_hat.shape[1] == Zs.shape[1] == args.sigma_hat.shape[0] == args.sigma_hat.shape[1]
+
     #6. Perform MTAG
     mtag_betas, mtag_se = mtag_analysis(Zs, Ns, args.omega_hat, args.sigma_hat)
+
     #7. Output GWAS_results
     save_mtag_results(args, res_temp,Zs,Ns, Fs,mtag_betas,mtag_se)
 
     logging.info('MTAG complete. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
 
-parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-separated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimating residual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
+parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-separated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimating residual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. The default estimation method for the genetic covariance matrix Omega is GMM (as described in the paper). \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
 
 # input_formatting = parser.add_argument_group(title="Options")
 
@@ -979,10 +924,6 @@ out_opts = parser.add_argument_group(title="Output formatting", description="Set
 
 out_opts.add_argument("--out", metavar='DIR/PREFIX', default='./mtag_results', type=str, help='Specify the directory and name prefix to output MTAG results. All mtag results will be prefixed with the corresponding tag. Default is ./mtag_results')
 out_opts.add_argument("--make_full_path", default=False, action="store_true", help="option to make output path specified in -out if it does not exist.")
-
-
-
-
 
 input_formatting = parser.add_argument_group(title="Column names of input files", description="These options manually pass the names of the relevant summary statistics columns used by MTAG. It is recommended to pass these names because only narrow searches for these columns are performed in the default cases. Moreover, it is necessary that these input files be readable by ldsc's munge_sumstats command.")
 input_formatting.add_argument("--snp_name", default="snpid", action="store",type=str, help="Name of the single column that provides the unique identifier for SNPs in the GWAS summary statistics across all GWAS results. Default is \"snpid\". This the index that will be used to merge the GWAS summary statistics. Any SNP lists passed to ---include or --exclude should also contain the same name.")
@@ -1022,15 +963,11 @@ misc.add_argument('--time_limit', default=100.,type=float, action="store", help=
 
 misc.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes, i.e., the weights 1/sqrt(2*MAF*(1-MAF)) are not applied when outputting MTAG results, where MAF is the minor allele frequency.")
 misc.add_argument("--tol", default=1e-6,type=float, help="Set the relative (x) tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of traits.")
-
-to_add = parser.add_argument_group(title="Options to add", description="Options that will (probably) in newer versions in mtag. PLEASE DO NOT USE ANY OF THESE OPTIONS. They either (i) do nothing (ii) give errors, or (iii) have not been seriously tested.")
-to_add.add_argument('--gmm_omega', default=False, action='store_true', help='Option to use the GMM estimator of the genetic VCV matrix. Much faster than using numerical estimation. This option is still being tested.')
-to_add.add_argument('--cc_Z', default=None, metavar="pval_name", action='store', help="Option to use Z-scores backed out by the p-values in the input summary statistics. The --z_name column will be used to determine the sign of the effect. Useful when you would like to apply MTAG to case-control GWAS results but the p-values are derived from likelihood ratio tests. Must give --cc_Z the name of the column containing the p-values in each file.")
-to_add.add_argument('--verbose', default=False, action='store_true', help='When used, will include output from running ldsc scripts as well additional information (such as optimization routine information.')
-
-
-
-
+misc.add_argument('--numerical_omega', default=False, action='store_true', help='Option to use the MLE estimator of the genetic VCV matrix, implemented through a numerical routine.')
+misc.add_argument('--verbose', default=False, action='store_true', help='When used, will include output from running ldsc scripts as well additional information (such as optimization routine information.')
+misc.add_argument('--chunksize', default=1e7, type=int,
+                    help='Chunksize for reading in data.')
+misc.add_argument('--stream_stdout', default=False, action='store_true', help='Will streat mtag processing on console in addition to writing to log file.')
 
 if __name__ == '__main__':
     start_t = time.time()

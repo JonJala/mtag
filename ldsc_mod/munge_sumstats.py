@@ -9,13 +9,11 @@ import gzip
 import bz2
 import argparse
 from scipy.stats import chi2
-from ldscore import sumstats
-from ldsc import MASTHEAD, sec_to_str
+import logging
+# from ldscore import sumstats
+from ldscore import allele_info
 import time
 np.seterr(invalid='ignore')
-import logging
-
-
 
 try:
     x = pd.DataFrame({'A': [1, 2, 3]})
@@ -127,6 +125,7 @@ describe_cname = {
 def read_header(fh):
     '''Read the first line of a file and returns a list with the column names.'''
     (openfunc, compression) = get_compression(fh)
+
     return [x.rstrip('\n') for x in openfunc(fh).readline().split()]
 
 
@@ -224,15 +223,11 @@ def filter_frq(frq, args):
     return ii & ~jj
 
 
-def filter_alleles(a):
+def filter_alleles(a, keep_str_ambig):
     '''Remove alleles that do not describe strand-unambiguous SNPs'''
-    ### XXX EXCLUDE STR. AMBIG SNPS FROM FILTERING
-    
-    filter_flag = a.isin(sumstats.VALID_SNPS)
+    VALID_SNPS_list = allele_info.VALID_andSA_SNPS if keep_str_ambig else allele_info.VALID_SNPS
 
-    return filter_flag
-
-
+    return a.isin(VALID_SNPS_list)
 
 
 def parse_dat(dat_gen, convert_colname, merge_alleles, args):
@@ -240,11 +235,11 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
     tot_snps = 0
     dat_list = []
     msg = 'Reading sumstats from {F} into memory {N} SNPs at a time.'
-    logging.info(msg.format(F=args.sumstats, N=int(args.chunksize)))
+    logging.info(msg.format(F=args.sumstats if args.sumstats is not None else 'provided DataFrame', N=int(args.chunksize)))
     drops = {'NA': 0, 'P': 0, 'INFO': 0,
              'FRQ': 0, 'A': 0, 'SNP': 0, 'MERGE': 0}
     for block_num, dat in enumerate(dat_gen):
-        #sys.stdout.write('.')
+        sys.stdout.write('.')
         tot_snps += len(dat)
         old = len(dat)
         dat = dat.dropna(axis=0, how="any", subset=filter(
@@ -290,7 +285,7 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
         if not args.no_alleles:
             dat.A1 = dat.A1.str.upper()
             dat.A2 = dat.A2.str.upper()
-            ii &= filter_alleles(dat.A1 + dat.A2)
+            ii &= filter_alleles(dat.A1 + dat.A2, args.keep_str_ambig)
             new = ii.sum()
             drops['A'] += old - new
             old = new
@@ -300,7 +295,7 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
 
         dat_list.append(dat[ii].reset_index(drop=True))
 
-    # sys.stdout.write(' done\n')
+    sys.stdout.write(' done\n')
     dat = pd.concat(dat_list, axis=0).reset_index(drop=True)
     msg = 'Read {N} SNPs from --sumstats file.\n'.format(N=tot_snps)
     if args.merge_alleles:
@@ -315,6 +310,7 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
     msg += 'Removed {N} SNPs with out-of-bounds p-values.\n'.format(
         N=drops['P'])
     msg += 'Removed {N} variants that were not SNPs or were strand-ambiguous.\n'.format(
+        N=drops['A']) if not args.keep_str_ambig else 'Removed {N} variants that were not SNPs. Note: strand ambiguous SNPs were not dropped.\n'.format(
         N=drops['A'])
     msg += '{N} SNPs remain.'.format(N=len(dat))
     logging.info(msg)
@@ -331,7 +327,7 @@ def process_n(dat, args):
         # NB no filtering on N done here -- that is done in the next code block
 
     if 'N' in dat.columns:
-        n_min = args.n_min if args.n_min is not None else dat.N.quantile(0.9) / 1.5
+        n_min = args.n_min if args.n_min else dat.N.quantile(0.9) / 1.5
         old = len(dat)
         dat = dat[dat.N >= n_min].reset_index(drop=True)
         new = len(dat)
@@ -413,7 +409,6 @@ def parse_flag_cnames(args):
     null_value = None
     if args.signed_sumstats:
         try:
-            
             cname, null_value = args.signed_sumstats.split(',')
             null_value = float(null_value)
             flag_cnames[clean_header(cname)] = 'SIGNED_SUMSTAT'
@@ -434,7 +429,7 @@ def allele_merge(dat, alleles):
         alleles, dat, how='left', on='SNP', sort=False).reset_index(drop=True)
     ii = dat.A1.notnull()
     a1234 = dat.A1[ii] + dat.A2[ii] + dat.MA[ii]
-    match = a1234.apply(lambda y: y in sumstats_withoutSA.MATCH_ALLELES)
+    match = a1234.apply(lambda y: y in allele_info.MATCH_ALLELES)
     jj = pd.Series(np.zeros(len(dat), dtype=bool))
     jj[ii] = match
     old = ii.sum()
@@ -475,7 +470,7 @@ parser.add_argument('--daner', default=False, action='store_true',
                     help="Use this flag to parse Stephan Ripke's daner* file format.")
 parser.add_argument('--daner-n', default=False, action='store_true',
                     help="Use this flag to parse more recent daner* formatted files, which "
-		    "include sample size column 'Nca' and 'Nco'.")
+            "include sample size column 'Nca' and 'Nco'.")
 parser.add_argument('--no-alleles', default=False, action="store_true",
                     help="Don't require alleles. Useful if only unsigned summary statistics are available "
                     "and the goal is h2 / partitioned h2 estimation rather than rg estimation.")
@@ -521,30 +516,43 @@ parser.add_argument('--a1-inc', default=False, action='store_true',
                     help='A1 is the increasing allele.')
 parser.add_argument('--keep-maf', default=False, action='store_true',
                     help='Keep the MAF column (if one exists).')
+parser.add_argument('--stdout-off', default=False, action='store_true',
+                    help='Only prints to the log file (not to console).')
+parser.add_argument('--keep-str-ambig', default=False, action='store_true',
+                    help=argparse.SUPPRESS) # This options allows munge sumstats to retain strand ambiguous SNPS instead of dropping them.
+parser.add_argument('--input-datgen', default=None, action='store',
+                    help=argparse.SUPPRESS) # When calling munge_sumstats directly through Python, you can pass the generator of df chunks directly rather than reading from data.
+parser.add_argument('--cnames', default=None, action='store',
+                    help=argparse.SUPPRESS ) # lsit of column names that must be passed alongside the input datgen. 
 
 
 # set p = False for testing in order to prevent printing
-def munge_sumstats(args, p=True):
-    if args.out is None:
+def munge_sumstats(args, write_out=True, new_log=True):
+    # print(args)
+    if args.out is None and (write_out or new_log):
         raise ValueError('The --out flag is required.')
 
     START_TIME = time.time()
-    # log = Logger(args.out + '.log')
+    if new_log:
+        logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
+        if not args.stdout_off:
+            logging.getLogger().addHandler(logging.StreamHandler()) # prints to console
+
     try:
-        if args.sumstats is None:
+        if args.sumstats is None and args.input_datgen is None:
             raise ValueError('The --sumstats flag is required.')
         if args.no_alleles and args.merge_alleles:
             raise ValueError(
                 '--no-alleles and --merge-alleles are not compatible.')
         if args.daner and args.daner_n:
-            raise ValueError('--daner and --daner-n are not compatible. Use --daner for sample ' +
-	        'size from FRQ_A/FRQ_U headers, use --daner-n for values from Nca/Nco columns')
+            raise ValueError('--daner and --daner-n are not compatible. Use --daner for sample ' + 
+            'size from FRQ_A/FRQ_U headers, use --daner-n for values from Nca/Nco columns')
 
-        if p:
+        if write_out:
             defaults = vars(parser.parse_args(''))
             opts = vars(args)
             non_defaults = [x for x in opts.keys() if opts[x] != defaults[x]]
-            header = MASTHEAD
+            header = allele_info.MASTHEAD
             header += "Call: \n"
             header += './munge_sumstats.py \\\n'
             options = ['--'+x.replace('_','-')+' '+str(opts[x])+' \\' for x in non_defaults]
@@ -552,14 +560,9 @@ def munge_sumstats(args, p=True):
             header = header[0:-1]+'\n'
             logging.info(header)
 
-
-        passed_df = isinstance(args.sumstats, pd.core.frame.DataFrame)
-        if passed_df:
-            file_cnames = args.sumstats.columns
-        else:
-            file_cnames = read_header(args.sumstats)  # note keys not cleaned
+        file_cnames = read_header(args.sumstats) if args.input_datgen is None else args.cnames  # note keys not cleaned
         flag_cnames, signed_sumstat_null = parse_flag_cnames(args)
-        if args.ignore:
+        if args.ignore: 
             ignore_cnames = [clean_header(x) for x in args.ignore.split(',')]
         else:
             ignore_cnames = []
@@ -589,21 +592,21 @@ def munge_sumstats(args, p=True):
 
             cname_map[frq_u] = 'FRQ'
 
-	if args.daner_n:
-	    frq_u = filter(lambda x: x.startswith('FRQ_U_'), file_cnames)[0]
-	    cname_map[frq_u] = 'FRQ'
-	    try:
-	        dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
-	    except ValueError:
-	        raise ValueError('Could not find Nca column expected for daner-n format')
+        if args.daner_n:
+            frq_u = filter(lambda x: x.startswith('FRQ_U_'), file_cnames)[0]
+            cname_map[frq_u] = 'FRQ'
+            try:
+                dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
+            except ValueError:
+                raise ValueError('Could not find Nca column expected for daner-n format')
+        
+            try:
+                dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
+            except ValueError:
+                raise ValueError('Could not find Nco column expected for daner-n format')
 
-	    try:
-	        dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
-	    except ValueError:
-	        raise ValueError('Could not find Nco column expected for daner-n format')
-
-            cname_map[dan_cas] = 'N_CAS'
-	    cname_map[dan_con] = 'N_CON'
+                cname_map[dan_cas] = 'N_CAS'
+            cname_map[dan_con] = 'N_CON'
 
         cname_translation = {x: cname_map[clean_header(x)] for x in file_cnames if
                              clean_header(x) in cname_map}  # note keys not cleaned
@@ -636,15 +639,15 @@ def munge_sumstats(args, p=True):
                 raise ValueError('Could not find {C} column.'.format(C=c))
 
         # check aren't any duplicated column names in mapping
-	for field in cname_translation:
-	    numk = file_cnames.count(field)
-	    if numk > 1:
-		raise ValueError('Found {num} columns named {C}'.format(C=field,num=str(numk)))
+        for field in cname_translation:
+            numk = file_cnames.count(field)
+            if numk > 1:
+                raise ValueError('Found {num} columns named {C}'.format(C=field,num=str(numk)))
 
         # check multiple different column names don't map to same data field
         for head in cname_translation.values():
             numc = cname_translation.values().count(head)
-	    if numc > 1:
+            if numc > 1:
                 raise ValueError('Found {num} different {C} columns'.format(C=head,num=str(numc)))
 
         if (not args.N) and (not (args.N_cas and args.N_con)) and ('N' not in cname_translation.values()) and\
@@ -682,12 +685,17 @@ def munge_sumstats(args, p=True):
         else:
             merge_alleles = None
 
-        (openfunc, compression) = get_compression(args.sumstats)
 
         # figure out which columns are going to involve sign information, so we can ensure
         # they're read as floats
         signed_sumstat_cols = [k for k,v in cname_translation.items() if v=='SIGNED_SUMSTAT']
-        dat_gen = pd.read_csv(args.sumstats, delim_whitespace=True, header=0,
+        if args.input_datgen is not None:
+
+            dat_gen = [sub_df[cname_translation.keys()] for sub_df in args.input_datgen]
+
+        else:
+            (openfunc, compression) = get_compression(args.sumstats)
+            dat_gen = pd.read_csv(args.sumstats, delim_whitespace=True, header=0,
                 compression=compression, usecols=cname_translation.keys(),
                 na_values=['.', 'NA'], iterator=True, chunksize=args.chunksize,
                 dtype={c:np.float64 for c in signed_sumstat_cols})
@@ -715,17 +723,18 @@ def munge_sumstats(args, p=True):
         if args.merge_alleles:
             dat = allele_merge(dat, merge_alleles)
 
-        out_fname = args.out + '.sumstats'
         print_colnames = [
             c for c in dat.columns if c in ['SNP', 'N', 'Z', 'A1', 'A2']]
         if args.keep_maf and 'FRQ' in dat.columns:
             print_colnames.append('FRQ')
-        msg = 'Writing summary statistics for {M} SNPs ({N} with nonmissing beta) to {F}.'
-        logging.info(
+        if write_out:
+            out_fname = args.out + '.sumstats'
+            msg = 'Writing summary statistics for {M} SNPs ({N} with nonmissing beta) to {F}.'
+            logging.info(
             msg.format(M=len(dat), F=out_fname + '.gz', N=dat.N.notnull().sum()))
-        if p:
             dat.to_csv(out_fname, sep="\t", index=False,
                        columns=print_colnames, float_format='%.3f')
+            # print(dat.head(10))
             os.system('gzip -f {F}'.format(F=out_fname))
 
         logging.info('\nMetadata:')
@@ -737,8 +746,7 @@ def munge_sumstats(args, p=True):
 
         logging.info('Lambda GC = ' + str(round(CHISQ.median() / 0.4549, 3)))
         logging.info('Max chi^2 = ' + str(round(CHISQ.max(), 3)))
-        logging.info('{N} Genome-wide significant SNPs (some may have been removed by filtering).'.format(N=(CHISQ
-                                                                                                        > 29).sum()))
+        logging.info('{N} Genome-wide significant SNPs (some may have been removed by filtering).'.format(N=(CHISQ > 29).sum()))
         return dat
 
     except Exception:
@@ -749,9 +757,7 @@ def munge_sumstats(args, p=True):
     finally:
         logging.info('\nConversion finished at {T}'.format(T=time.ctime()))
         logging.info('Total time elapsed: {T}'.format(
-            T=sec_to_str(round(time.time() - START_TIME, 2))))
+            T=allele_info.sec_to_str(round(time.time() - START_TIME, 2))))
 
 if __name__ == '__main__':
-    args = parser.parse_args()
-    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d %I:%M:%S %p')
-    munge_sumstats(args, p=True)
+    d = munge_sumstats(parser.parse_args(), write_out=True)

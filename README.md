@@ -2,7 +2,7 @@
 
 `mtag` is a Python-based command line tool for jointly analyzing multiple sets of GWAS summary statistics as described by [Turley et. al. (2017)](http://biorxiv.org/content/early/2017/03/20/118810). It can also be used as a tool to meta-analyze GWAS results.
 
-## Getting Started 
+## Getting Started
 
 We recommend installing the [Anaconda python distribution](https://www.continuum.io/downloads) as it includes all of the packages listed above. It also makes updating packages relatively painless with the `conda update` command.
 
@@ -11,7 +11,7 @@ To run `mtag`, you will need to have Python 2.7 installed with the following pac
 * `numpy`
 * `scipy`
 * `pandas`
-* `argparse` 
+* `argparse`
 * `bitarray` (for `ldsc`)
 
 
@@ -51,7 +51,7 @@ If you use the `mtag` software or methodology, please cite:
 
 Turley, et. al. MTAG: Multi-Trait Analysis of GWAS. bioRxiv doi: <https://doi.org/10.1101/118810>.
 
-### License 
+### License
 
 This project is licensed under GNU General Public License v3.
 
