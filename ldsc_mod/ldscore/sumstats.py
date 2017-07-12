@@ -18,7 +18,6 @@ import traceback
 import copy
 import os
 
-incl_strand_ambiguous = False # modification for initial filtering in MTAG
 
 _N_CHR = 22
 # complementary bases
@@ -30,10 +29,8 @@ STRAND_AMBIGUOUS = {''.join(x): x[0] == COMPLEMENT[x[1]]
                     for x in it.product(BASES, BASES)
                     if x[0] != x[1]}
 # SNPS we want to keep (pairs of alleles)
-
 VALID_SNPS = {x for x in map(lambda y: ''.join(y), it.product(BASES, BASES))
               if x[0] != x[1] and not STRAND_AMBIGUOUS[x]}
-
 # T iff SNP 1 has the same alleles as SNP 2 (allowing for strand or ref allele flip).
 MATCH_ALLELES = {x for x in map(lambda y: ''.join(y), it.product(VALID_SNPS, VALID_SNPS))
                  # strand and ref match
@@ -227,7 +224,7 @@ def _print_part_delete_values(ldscore_reg, ofh, log):
     '''Prints partitioned block jackknife delete-k values'''
     log.log('Printing partitioned block jackknife delete values to {F}.'.format(F=ofh))
     np.savetxt(ofh, ldscore_reg.part_delete_values)
-
+ 
 
 def _merge_and_log(ld, sumstats, noun, log):
     '''Wrap smart merge with log messages about # of SNPs.'''
@@ -241,8 +238,9 @@ def _merge_and_log(ld, sumstats, noun, log):
     return sumstats
 
 
-def _read_ld_sumstats(args, log, fh, alleles=False, dropna=True):
-    sumstats = _read_sumstats(args, log, fh, alleles=alleles, dropna=dropna)
+def _read_ld_sumstats(args, log, fh, alleles=False, dropna=True, sumstats=None):
+    if sumstats is None and fh is not None:
+        sumstats = _read_sumstats(args, log, fh, alleles=alleles, dropna=dropna)
     ref_ld = _read_ref_ld(args, log)
     n_annot = len(ref_ld.columns) - 1
     M_annot = _read_M(args, log, n_annot)
@@ -380,16 +378,26 @@ def estimate_h2(args, log):
 
 
 def estimate_rg(args, log):
-    '''Estimate rg between trait 1 and a list of other traits.'''
+    '''Estimate rg between trait 1 and a list of other traits.
+       If --rg_mat used, estimate rg between all pairs of traits. 
+
+        XXX: Added sumstats_frames: list of sumstats dataframe to be used for rg. In that case it is no longer necessary to parse and read rg files.
+
+       '''
+    # print(args)
+    user_frames = args.sumstats_frames is not None
     args = copy.deepcopy(args)
-    rg_paths, rg_files = _parse_rg(args.rg)
-    n_pheno = len(rg_paths)
+    if not user_frames:
+        rg_paths, rg_files = _parse_rg(args.rg)
+        n_pheno = len(rg_paths)
+    else:
+        rg_paths, rg_files = _parse_rg(args.rg)
+        n_pheno = len(args.sumstats_frames)
+        rg_frames_1 = args.sumstats_frames if args.rg_mat else  args.sumstats_frames[:1]
+
     f = lambda x: _split_or_none(x, n_pheno)
     args.intercept_h2, args.intercept_gencov, args.samp_prev, args.pop_prev = map(f,
         (args.intercept_h2, args.intercept_gencov, args.samp_prev, args.pop_prev))
-    #print(args.intercept_gencov)
-    #print(args.intercept_h2)
-    #print('XXX')
     map(lambda x: _check_arg_len(x, n_pheno), ((args.intercept_h2, '--intercept-h2'),
                                                (args.intercept_gencov, '--intercept-gencov'),
                                                (args.samp_prev, '--samp-prev'),
@@ -397,69 +405,94 @@ def estimate_rg(args, log):
     if args.no_intercept:
         args.intercept_h2 = [1 for _ in xrange(n_pheno)]
         args.intercept_gencov = [0 for _ in xrange(n_pheno)]
-    p1 = rg_paths[0]
-    out_prefix = args.out + rg_files[0]
-    M_annot, w_ld_cname, ref_ld_cnames, sumstats, _ = _read_ld_sumstats(args, log, p1,
-                                                                        alleles=True, dropna=True)
+    rg_paths_1 = rg_paths if args.rg_mat else rg_paths[:1]
+
     RG = []
-    n_annot = M_annot.shape[1]
-    if n_annot == 1 and args.two_step is None and args.intercept_h2 is None:
-        args.two_step = 30
-    if args.two_step is not None:
-        log.log('Using two-step estimator with cutoff at {M}.'.format(M=args.two_step))
+    # XXX stopped here. ADD a boolean of args.susmstas_frames == None
+    rg_list_1 = rg_frames_1 if user_frames else rg_paths_1
+    rg_list_2 = args.sumstats_frames if user_frames else rg_paths
+    rg_name_tups = []
+    for k, p1 in enumerate(rg_list_1):
+        out_prefix = args.out + rg_files[k] # YYY make --out writing optional with dataframes
+        if user_frames:
+            M_annot, w_ld_cname, ref_ld_cnames, sumstats, _ = _read_ld_sumstats(args, log, None, alleles=True, dropna=True,sumstats=p1)
+        else:
+            M_annot, w_ld_cname, ref_ld_cnames, sumstats, _ = _read_ld_sumstats(args, log, p1, alleles=True, dropna=True)
+        n_annot = M_annot.shape[1]
+        if n_annot == 1 and args.two_step is None and args.intercept_h2 is None:
+            args.two_step = 30
+        if args.two_step is not None:
+            log.log('Using two-step estimator with cutoff at {M}.'.format(M=args.two_step))
 
-    for i, p2 in enumerate(rg_paths[1:n_pheno]):
-        log.log(
-            'Computing rg for phenotype {I}/{N}'.format(I=i + 2, N=len(rg_paths)))
-        try:
-            loop = _read_other_sumstats(args, log, p2, sumstats, ref_ld_cnames)
-            rghat = _rg(loop, args, log, M_annot, ref_ld_cnames, w_ld_cname, i)
-            RG.append(rghat)
-            _print_gencor(args, log, rghat, ref_ld_cnames, i, rg_paths, i == 0)
-            out_prefix_loop = out_prefix + '_' + rg_files[i + 1]
-            if args.print_cov:
-                _print_rg_cov(rghat, out_prefix_loop, log)
-            if args.print_delete_vals:
-                _print_rg_delete_values(rghat, out_prefix_loop, log)
+        for i in range(k+1, n_pheno):
+            p2 = rg_list_2[i]
+            print('XXX {}'.format(p2))
+            log.log(
+                'Computing rg for phenotypes {K}/{N}-{I}/{N}'.format(K=k+1, I=i +  1, N=len(rg_paths)))
+            # try:
+            if True:
+                if user_frames:
+                    loop = _read_other_sumstats(args, log, None, sumstats, ref_ld_cnames,sumstats2=p2)
+                else:
+                    loop = _read_other_sumstats(args, log, p2, sumstats, ref_ld_cnames)
+                rghat = _rg(loop, args, log, M_annot, ref_ld_cnames, w_ld_cname, k, i)
+             
+                _print_gencor(args, log, rghat, ref_ld_cnames, k,i, rg_paths, i == 0)
+                out_prefix_loop = out_prefix + '_' + rg_files[i ]
+                if args.print_cov:
+                    _print_rg_cov(rghat, out_prefix_loop, log)
+                if args.print_delete_vals:
+                    _print_rg_delete_values(rghat, out_prefix_loop, log)
 
-        except Exception:  # keep going if phenotype 50/100 causes an error
-            msg = 'ERROR computing rg for phenotype {I}/{N}, from file {F}.'
-            log.log(msg.format(I=i + 2, N=len(rg_paths), F=rg_paths[i + 1]))
-            ex_type, ex, tb = sys.exc_info()
-            log.log(traceback.format_exc(ex) + '\n')
-            if len(RG) <= i:  # if exception raised before appending to RG
-                RG.append(None)
+                rg_name_tups = [(rg_files[k], rg_files[i])]
+                RG.append(rghat)
 
+            # except Exception:  # keep going if phenotype 50/100 causes an error
+            #     msg = 'ERROR computing rg for phenotype {K}/{N}-{I}/{N}, from file {F}.'
+            #     log.log(msg.format(K=k+1, I=i + k+1, N=len(rg_paths), F=rg_paths[i + k]))
+            #     ex_type, ex, tb = sys.exc_info()
+            #     log.log(traceback.format_exc(ex) + '\n')
+            #     if len(RG) <= i:  # if exception raised before appending to RG
+            #         RG.append(None)
+    print(RG)
     log.log('\nSummary of Genetic Correlation Results\n' +
-            _get_rg_table(rg_paths, RG, args))
-    return RG
+            _get_rg_table(rg_name_tups, RG, args))
+
+    if args.rg_mat:
+        X = np.array([None for a in range(n_pheno) for b in range(n_pheno)], dtype=object).reshape(n_pheno, n_pheno)
+        X[np.triu_indices(n_pheno, 1)] = RG
+        for i in range(n_pheno):
+            for j in range(i+1, n_pheno):
+                X[j,i] =  X[i,j]
+        RG = X
+        # RG = [RG[k,i] for  k in xrange(len(rg_paths_1)) for i in xrange(k+i, len(rg_paths))]
+    return RG # RG is now a matrix with None on the diagonals
 
 
-def _read_other_sumstats(args, log, p2, sumstats, ref_ld_cnames):
-    loop = _read_sumstats(args, log, p2, alleles=True, dropna=False)
+def _read_other_sumstats(args, log, fh2, sumstats, ref_ld_cnames, sumstats2=None):
+    if sumstats2 is None and fh2 is not None:
+        loop = _read_sumstats(args, log, fh2, alleles=True, dropna=False)
+    else:
+        loop = sumstats2
     loop = _merge_sumstats_sumstats(args, sumstats, loop, log)
     loop = loop.dropna(how='any')
     alleles = loop.A1 + loop.A2 + loop.A1x + loop.A2x
     if not args.no_check_alleles:
         loop = _select_and_log(loop, _filter_alleles(alleles), log,
                                '{N} SNPs with valid alleles.')
-    #print('1. '+str(len(loop)))
+
     loop['Z2'] = _align_alleles(loop.Z2, alleles)
-    #print('2. '+str(len(loop)))
     loop = loop.drop(['A1', 'A1x', 'A2', 'A2x'], axis=1)
-    #print('3. '+str(len(loop)))
     _check_ld_condnum(args, log, loop[ref_ld_cnames])
-    # print('4. '+str(len(loop)))
     _warn_length(log, loop)
     return loop
 
-
-def _get_rg_table(rg_paths, RG, args):
+def _get_rg_table(rg_path_tups, RG, args):
     '''Print a table of genetic correlations.'''
     t = lambda attr: lambda obj: getattr(obj, attr, 'NA')
     x = pd.DataFrame()
-    x['p1'] = [rg_paths[0] for i in xrange(1, len(rg_paths))]
-    x['p2'] = rg_paths[1:len(rg_paths)]
+    x['p1'] = [rg_path_tups[i][0] for i in xrange(len(RG))]
+    x['p2'] = [rg_path_tups[i][1] for i in xrange(len(RG))]
     x['rg'] = map(t('rg_ratio'), RG)
     x['se'] = map(t('rg_se'), RG)
     x['z'] = map(t('z'), RG)
@@ -480,20 +513,19 @@ def _get_rg_table(rg_paths, RG, args):
     x['gcov_int_se'] = map(t('intercept_se'), map(t('gencov'), RG))
     return x.to_string(header=True, index=False) + '\n'
 
-
-def _print_gencor(args, log, rghat, ref_ld_cnames, i, rg_paths, print_hsq1):
+def _print_gencor(args, log, rghat, ref_ld_cnames, i1,i2, rg_paths, print_hsq1):
     l = lambda x: x + ''.join(['-' for i in range(len(x.replace('\n', '')))])
-    P = [args.samp_prev[0], args.samp_prev[i + 1]]
-    K = [args.pop_prev[0], args.pop_prev[i + 1]]
+    P = [args.samp_prev[i1], args.samp_prev[i2]]
+    K = [args.pop_prev[i1], args.pop_prev[i2]]
     if args.samp_prev is None and args.pop_prev is None:
         args.samp_prev = [None, None]
         args.pop_prev = [None, None]
     if print_hsq1:
-        log.log(l('\nHeritability of phenotype 1\n'))
+        log.log(l('\nHeritability of phenotype {I}/{N}\n'.format(I=i1+1, N=len(rg_paths))))
         log.log(rghat.hsq1.summary(ref_ld_cnames, P=P[0], K=K[0]))
 
     log.log(
-        l('\nHeritability of phenotype {I}/{N}\n'.format(I=i + 2, N=len(rg_paths))))
+        l('\nHeritability of phenotype {I}/{N}\n'.format(I=i2+1, N=len(rg_paths))))
     log.log(rghat.hsq2.summary(ref_ld_cnames, P=P[1], K=K[1]))
     log.log(l('\nGenetic Covariance\n'))
     log.log(rghat.gencov.summary(ref_ld_cnames, P=P, K=K))
@@ -518,7 +550,6 @@ def _filter_alleles(alleles):
 
 def _align_alleles(z, alleles):
     '''Align Z1 and Z2 to same choice of ref allele (allowing for strand flip).'''
-
     try:
         z *= (-1) ** alleles.apply(lambda y: FLIP_ALLELES[y])
     except KeyError as e:
@@ -528,7 +559,7 @@ def _align_alleles(z, alleles):
     return z
 
 
-def _rg(sumstats, args, log, M_annot, ref_ld_cnames, w_ld_cname, i):
+def _rg(sumstats, args, log, M_annot, ref_ld_cnames, w_ld_cname, i1, i2):
     '''Run the regressions.'''
     n_snp = len(sumstats)
     s = lambda x: np.array(x).reshape((n_snp, 1))
@@ -538,8 +569,7 @@ def _rg(sumstats, args, log, M_annot, ref_ld_cnames, w_ld_cname, i):
         sumstats = sumstats[ii]
     n_blocks = min(args.n_blocks, n_snp)
     ref_ld = sumstats.as_matrix(columns=ref_ld_cnames)
-    intercepts = [args.intercept_h2[0], args.intercept_h2[
-        i + 1], args.intercept_gencov[i + 1]]
+    intercepts = [args.intercept_h2[i1], args.intercept_h2[i2], args.intercept_gencov[i2]]
     rghat = reg.RG(s(sumstats.Z1), s(sumstats.Z2),
                    ref_ld, s(sumstats[w_ld_cname]), s(
                        sumstats.N1), s(sumstats.N2), M_annot,
