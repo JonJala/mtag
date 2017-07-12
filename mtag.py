@@ -12,8 +12,7 @@ import time
 import os, sys, gzip, bz2, re
 import logging
 from argparse import Namespace
-#import munge_sumstats_withSA
-#from ldsc_mod import munge_sumstats_withoutSA
+
 from ldsc_mod.ldscore import sumstats as sumstats_sig
 from ldsc_mod.ldscore import allele_info
 
@@ -135,7 +134,7 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
     ignore_list = ""
     if args.info_min is None:
         ignore_list += "info"
-        
+
     # sumstats is set to null because generator passed manually
     argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=zz+',0', info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
 
@@ -349,8 +348,7 @@ def estimate_sigma(data_df, args):
 
         # single_colnames = [col for col in data_df.columns if col[-1] == str(p) or col in args.snp_name]
         gwas_ss_df[p] = data_df[ld_ss_name.keys()].copy()
-        print('XXX col names est sig')
-        print(gwas_ss_df[p].columns)
+       
         # gwas_filtered_df= gwas_filtered_df.rename(columns={args.snp_name:args.snp_name+str(p)})
         gwas_ss_df[p] = gwas_ss_df[p].rename(columns=ld_ss_name)
         ## remove phenotype index from names
@@ -366,13 +364,10 @@ def estimate_sigma(data_df, args):
                 rg_out = '{}_rg_misc'.format(args.out)
                 args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=args.maf_min,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[gwas_ss_df[p1], gwas_ss_df[p2]], rg_mat=False)
                 rg_results =  sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())[0]
-                # print(rg_results)
 
                 sigma_hat[p1,p2] = rg_results.gencov.intercept
                 sigma_hat[p2,p1] = sigma_hat[p1,p2]
-
-
-
+                logging.info('Completed rg of trait {}-{}'.format(p1+1,p2+1))
 
     return sigma_hat
 
@@ -550,7 +545,7 @@ def jointEffect_probability(Z_score, omega_hat, sigma_hat,N_mats, S=None):
     return jointProbs
 
 def gmm_omega(Zs, Ns, sigma_LD):
-    logging.info('--gmm_omega using ..')
+    logging.info('Using GMM estimator of Omega ..')
     N_mats = np.sqrt(np.einsum('mp,mq->mpq', Ns,Ns))
     Z_outer = np.einsum('mp,mq->mpq',Zs, Zs)
     return np.mean((Z_outer - sigma_LD) / N_mats, axis=0)
@@ -644,47 +639,53 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
     # start_time =time.time()
     logging.info('Beginning estimation of Omega ...')
+    
     M,P = Zs.shape
     N_mats = np.sqrt(np.einsum('mp, mq -> mpq',Ns, Ns))
+    
+
+    if args.perfect_gencov and args.equal_h2:
+        logging.info('--perfect_gencov and --equal_h2 option used')
+        return np.ones((P,P))
+
+    if args.numerical_omega:
+        if omega_in is None: # omega_in serves as starting point
+            omega_in = np.zeros((P,P))
+            omega_in[np.diag_indices(P)] = np.diag(gmm_omega(Zs,Ns,sigma_LD))
+
+        omega_hat = omega_in
+       
+        omega_hat, opt_results = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
+        numerical_msg = "\n Numerical optimization of Omega complete:"
+        numerical_msg += "\nSuccessful termination? {}".format("Yes" if opt_results.success else "No")
+        numerical_msg += "\nTermination message:\t{}".format(opt_results.message)
+        numerical_msg += "\nCompleted in {} iterations".format(opt_results.nit)
+        logging.info(numerical_msg)
+        return omega_hat
+
+
 
     #logL = lambda joint_probs: np.sum(np.log(joint_probs))
     if args.perfect_gencov:
-        if args.equal_h2:
-            return np.ones((P,P))
-        elif args.analytic_omega: # if both closed-form solution and solution with perfect covariance desired, then we compute closed form solution and return the outerproduct of the square root of the diagonal with itself.
+        # if args.equal_h2: # already covered above.
+        #     return np.ones((P,P))
+        if args.analytic_omega: # if both closed-form solution and solution with perfect covariance desired, then we compute closed form solution and return the outerproduct of the square root of the diagonal with itself.
             logging.info('Using closed-form solution...')
             omega_hat = analytic_omega(Zs,Ns, sigma_LD)
             return np.sqrt(np.outer(np.diag(omega_hat),np.diag(omega_hat)))
 
-        elif args.gmm_omega: 
+        else: # gmm_omega
             omega_hat = _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
             return np.sqrt(np.outer(np.diag(omega_hat), np.diag(omega_hat)))
-    # XXX add --gmm_omega implementation
 
 
     elif args.analytic_omega: # analytic solution only.
 
         return _posDef_adjustment(analytic_omega(Zs,Ns,sigma_LD))
 
-    elif args.gmm_omega:
-        return _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
-    # want analytic solution
-    if omega_in is None: # omega_in serves as starting point
-        omega_in = np.zeros((P,P))
-        omega_in[np.diag_indices(P)] = np.diag(gmm_omega(Zs,Ns,sigma_LD))
-
-    omega_hat = omega_in
+    # else: gmm_omega (default)
+    return _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
    
-    omega_hat, opt_results = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
-    numerical_msg = "\n Numerical optimization of Omega complete:"
-    numerical_msg += "\nSuccessful termination? {}".format("Yes" if opt_results.success else "No")
-    numerical_msg += "\nTermination message:\t{}".format(opt_results.message)
-    numerical_msg += "\nCompleted in {} iterations".format(opt_results.nit)
-    logging.info(numerical_msg)
-
-
-    return omega_hat
-
 ########################
 ## MTAG CALCULATION ####
 ########################
@@ -910,7 +911,7 @@ def mtag(args):
 
     logging.info('MTAG complete. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
 
-parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-separated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimating residual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
+parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-separated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimating residual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. The default estimation method for the genetic covariance matrix Omega is GMM (as described in the paper). \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
 
 # input_formatting = parser.add_argument_group(title="Options")
 
@@ -962,11 +963,8 @@ misc.add_argument('--time_limit', default=100.,type=float, action="store", help=
 
 misc.add_argument('--std_betas', default=False, action='store_true', help="Results files will have standardized effect sizes, i.e., the weights 1/sqrt(2*MAF*(1-MAF)) are not applied when outputting MTAG results, where MAF is the minor allele frequency.")
 misc.add_argument("--tol", default=1e-6,type=float, help="Set the relative (x) tolerance when numerically estimating the genetic variance-covariance matrix. Not recommended to change unless you are facing strong runtime constraints for a large number of traits.")
-
-to_add = parser.add_argument_group(title="Options to add", description="Options that will (probably) in newer versions in mtag. PLEASE DO NOT USE ANY OF THESE OPTIONS. They either (i) do nothing (ii) give errors, or (iii) have not been seriously tested.")
-to_add.add_argument('--gmm_omega', default=False, action='store_true', help='Option to use the GMM estimator of the genetic VCV matrix. Much faster than using numerical estimation. This option is still being tested.')
-to_add.add_argument('--cc_Z', default=None, metavar="pval_name", action='store', help="Option to use Z-scores backed out by the p-values in the input summary statistics. The --z_name column will be used to determine the sign of the effect. Useful when you would like to apply MTAG to case-control GWAS results but the p-values are derived from likelihood ratio tests. Must give --cc_Z the name of the column containing the p-values in each file.")
-to_add.add_argument('--verbose', default=False, action='store_true', help='When used, will include output from running ldsc scripts as well additional information (such as optimization routine information.')
+misc.add_argument('--numerical_omega', default=False, action='store_true', help='Option to use the MLE estimator of the genetic VCV matrix, implemented through a numerical routine.')
+misc.add_argument('--verbose', default=False, action='store_true', help='When used, will include output from running ldsc scripts as well additional information (such as optimization routine information.')
 misc.add_argument('--chunksize', default=1e7, type=int,
                     help='Chunksize for reading in data.')
 misc.add_argument('--stream_stdout', default=False, action='store_true', help='Will streat mtag processing on console in addition to writing to log file.')
