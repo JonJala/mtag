@@ -381,7 +381,7 @@ def estimate_rg(args, log):
     '''Estimate rg between trait 1 and a list of other traits.
        If --rg_mat used, estimate rg between all pairs of traits. 
 
-        XXX: Added sumstats_frames: list of sumstats dataframe to be used for rg. In that case it is no longer necessary to parse and read rg files.
+        Added sumstats_frames: list of sumstats dataframe to be used for rg. In that case it is no longer necessary to parse and read rg files.
 
        '''
     # print(args)
@@ -408,7 +408,7 @@ def estimate_rg(args, log):
     rg_paths_1 = rg_paths if args.rg_mat else rg_paths[:1]
 
     RG = []
-    # XXX stopped here. ADD a boolean of args.susmstas_frames == None
+    
     rg_list_1 = rg_frames_1 if user_frames else rg_paths_1
     rg_list_2 = args.sumstats_frames if user_frames else rg_paths
     rg_name_tups = []
@@ -426,7 +426,7 @@ def estimate_rg(args, log):
 
         for i in range(k+1, n_pheno):
             p2 = rg_list_2[i]
-            print('XXX {}'.format(p2))
+          
             log.log(
                 'Computing rg for phenotypes {K}/{N}-{I}/{N}'.format(K=k+1, I=i +  1, N=len(rg_paths)))
             # try:
@@ -454,7 +454,6 @@ def estimate_rg(args, log):
             #     log.log(traceback.format_exc(ex) + '\n')
             #     if len(RG) <= i:  # if exception raised before appending to RG
             #         RG.append(None)
-    print(RG)
     log.log('\nSummary of Genetic Correlation Results\n' +
             _get_rg_table(rg_name_tups, RG, args))
 
