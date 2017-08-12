@@ -31,9 +31,7 @@ header += "<> (C) 2017 Omeed Maghzian, Raymond Walters, and Patrick Turley\n"
 header += "<> Harvard University Department of Economics / Broad Institute of MIT and Harvard\n"
 header += "<> GNU General Public License v3\n"
 header += "<> ----------------BETA VERSION----------------\n"
-header += "<> Note: this tool is currently undergoing rapid revision \n"
-header += "<> and may still have critical bugs. It is recommended to run \n"
-header += "<> your own QC on the input before using this program. \n"
+header += "<> It is recommended to run your own QC on the input before using this program. \n"
 header += "<> Please email us if you find any errors / are confused about \n"
 header += "<> anything! [Email maghzian@nber.org for bugs in the code.]\n"
 header += borderline +"\n"
@@ -820,7 +818,7 @@ def mtag(args):
         raise ValueError("--equal_h2 option used without --perfect_gencov. To use --equal_h2, --perfect_gencov must be also be included.")
 
      ## Instantiate log file and masthead
-    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d% I:%M:%S %p')
+    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d/%I:%M:%S %p')
     if args.stream_stdout:
         logging.getLogger().addHandler(logging.StreamHandler()) # prints to console
 
