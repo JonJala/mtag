@@ -18,7 +18,7 @@ from ldsc_mod.ldscore import allele_info
 
 import ldsc_mod.munge_sumstats as munge_sumstats
 
-__version__ = '0.9.5'
+__version__ = '1.0.1'
 
 borderline = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>"
 
@@ -30,10 +30,10 @@ header += "<> Version: {}\n".format(str(__version__))
 header += "<> (C) 2017 Omeed Maghzian, Raymond Walters, and Patrick Turley\n"
 header += "<> Harvard University Department of Economics / Broad Institute of MIT and Harvard\n"
 header += "<> GNU General Public License v3\n"
-header += "<> ----------------BETA VERSION----------------\n"
-header += "<> It is recommended to run your own QC on the input before using this program. \n"
-header += "<> Please email us if you find any errors / are confused about \n"
-header += "<> anything! [Email maghzian@nber.org for bugs in the code.]\n"
+header += borderline + "\n"
+header += "<> Note:  It is recommended to run your own QC on the input before using this program. \n"
+header += "<> Software-related correspondence: maghzian@nber.org \n"
+header += "<> All other correspondence: paturley@broadinstitute.org"
 header += borderline +"\n"
 header += "\n\n"
 
@@ -144,7 +144,7 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
     munged_results = munge_sumstats.munge_sumstats(argnames, write_out=False, new_log=False)
     GWAS_df = GWAS_df.merge(munged_results, how='inner',left_on =args.snp_name,right_on='SNP',suffixes=('','_ss'))
     GWAS_df = GWAS_df[original_cols]
-    
+
     logging.info(borderline)
     logging.info('Munging of Trait {} complete. SNPs remaining:\t {}'.format(p+1, len(GWAS_df)))
     logging.info(borderline+'\n')
@@ -196,7 +196,7 @@ def load_and_merge_data(args):
             args.n_min_list = args.n_min_list * P
     else:
         args.n_min_list = [None]*P
-    
+
     if args.maf_min is not None:
         args.maf_min_list = [float(x) for x in args.maf_min.split(',')]
         if len(args.maf_min_list) == 1:
@@ -217,7 +217,7 @@ def load_and_merge_data(args):
     sumstats_format = dict()
     for p, GWAS_input in enumerate(GWAS_input_files):
         GWAS_d[p], gwas_dat_gen = _read_GWAS_sumstats(GWAS_input)
-        # add suffix 
+        # add suffix
         logging.info('Read in Trait {} summary statistics ({} SNPs) from {} ...'.format(p+1,len(GWAS_d[p]), GWAS_input))
 
         # perform munge sumstats
@@ -227,7 +227,7 @@ def load_and_merge_data(args):
         # convert Alleles to uppercase
         for col in [col+str(p) for col in [args.a1_name, args.a2_name]]:
             GWAS_d[p][col] = GWAS_d[p][col].str.upper()
-            
+
         GWAS_d[p] =GWAS_d[p].rename(columns={x+str(p):x for x in GWAS_d[p].columns})
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
 
@@ -246,7 +246,7 @@ def load_and_merge_data(args):
             logging.info('Trait {}: Dropped {} SNPs for duplicate values in the "snp_name" column'.format(p+1, M0-len(GWAS_d[p])))
 
     ## Merge summary statistics of GWA studies by snp index
-    
+
     for p in range(P):
 
         if p == 0:
@@ -271,11 +271,14 @@ def load_and_merge_data(args):
 
                 if np.sum(snps_to_flip) > 0:
                     zz= args.z_name if args.z_name is not None else 'z'
+                    freq_name = args.eaf_name if args.eaf_name is not None else 'freq'
+    
                     GWAS_all.loc[snps_to_flip, zz+str(p)] = -1*GWAS_all.loc[snps_to_flip, zz+str(p)]
+                    GWAS_all.loc[snps_to_flip, freq_name + str(p)] = 1. - GWAS_all.loc[snps_to_flip, freq_name + str(p)]
                     store_allele = GWAS_all.loc[snps_to_flip, args.a1_name+str(p)]
                     GWAS_all.loc[snps_to_flip, args.a1_name+str(p)] = GWAS_all.loc[snps_to_flip, args.a2_name+str(p)]
                     GWAS_all.loc[snps_to_flip, args.a2_name+str(p)] = store_allele
-                    logging.info('Flipped the signs of of {} SNPs to make them consistent with the effect allele orderings of the first trait.'.format(np.sum(snps_to_flip))) 
+                    logging.info('Flipped the signs of of {} SNPs to make them consistent with the effect allele orderings of the first trait.'.format(np.sum(snps_to_flip)))
         # tag strand ambiguous SNPs
         # logging.info(GWAS_all.head(15))
         STRAND_AMBIGUOUS_SET = [x for x in allele_info.STRAND_AMBIGUOUS.keys() if allele_info.STRAND_AMBIGUOUS[x]]
@@ -321,6 +324,20 @@ def load_and_merge_data(args):
 
     return GWAS_all, args
 
+def ldsc_matrix_formatter(result_rg, output_var):
+    ''' Key Arguments:
+    result_rg - matrix w/ RG objects obtained from estimate_rg (w/ None's on the diagonal)
+    output_var - interested variable in the form of '.[VAR_NAME]'
+    '''
+    output_mat = np.empty_like(result_rg, dtype=float)
+    (nrow, ncol) = result_rg.shape
+    for i in range(nrow):
+        for j in range(ncol):
+            if result_rg[i, j] is None:
+                output_mat[i, j] = None
+            else:
+                exec('output_mat[i, j] = result_rg[i, j]{}'.format(output_var))
+    return(output_mat)
 
 def estimate_sigma(data_df, args):
     sigma_hat = np.empty((args.P,args.P))
@@ -346,26 +363,40 @@ def estimate_sigma(data_df, args):
 
         # single_colnames = [col for col in data_df.columns if col[-1] == str(p) or col in args.snp_name]
         gwas_ss_df[p] = data_df[ld_ss_name.keys()].copy()
-       
+
         # gwas_filtered_df= gwas_filtered_df.rename(columns={args.snp_name:args.snp_name+str(p)})
         gwas_ss_df[p] = gwas_ss_df[p].rename(columns=ld_ss_name)
         ## remove phenotype index from names
 
 
-    # run ldsc
-    for p1 in range(args.P):
-        for p2 in range (p1,args.P): #TODO make p1->p1+1 and use h2 estimates
-            if (p1 == p2 and args.no_overlap) or not args.no_overlap:
-                h2_files = None
-                # rg_files = '{X}.sumstats.gz,{Y}.sumstats.gz'.format(X=save_paths_postmunge[p1],Y=save_paths_postmunge[p2])
-                rg_files = args.sumstats # only the file name matters
-                rg_out = '{}_rg_misc'.format(args.out)
-                args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=args.maf_min,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[gwas_ss_df[p1], gwas_ss_df[p2]], rg_mat=False)
-                rg_results =  sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())[0]
 
-                sigma_hat[p1,p2] = rg_results.gencov.intercept
-                sigma_hat[p2,p1] = sigma_hat[p1,p2]
-                logging.info('Completed rg of trait {}-{}'.format(p1+1,p2+1))
+    # run ldsc 
+    h2_files = None 
+    rg_files = args.sumstats
+    rg_out = '{}_rg_misc'.format(args.out)
+    rg_mat = True
+
+    args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=None,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[ gwas_ss_df[i] for i in range(args.P)], rg_mat=rg_mat)
+
+    rg_results =  sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())
+
+    sigma_hat = ldsc_matrix_formatter(rg_results, '.gencov.intercept')
+    logging.info(type(sigma_hat))
+    logging.info(sigma_hat)
+    # run ldsc
+    # for p1 in range(args.P):
+    #     for p2 in range (p1,args.P): #TODO make p1->p1+1 and use h2 estimates
+    #         if (p1 == p2 and args.no_overlap) or not args.no_overlap:
+    #             h2_files = None
+    #             # rg_files = '{X}.sumstats.gz,{Y}.sumstats.gz'.format(X=save_paths_postmunge[p1],Y=save_paths_postmunge[p2])
+    #             rg_files = args.sumstats # only the file name matters
+    #             rg_out = '{}_rg_misc'.format(args.out)
+    #             args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=args.maf_min,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[gwas_ss_df[p1], gwas_ss_df[p2]], rg_mat=False)
+    #             rg_results =  sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())[0]
+
+    #             sigma_hat[p1,p2] = rg_results.gencov.intercept
+    #             sigma_hat[p2,p1] = sigma_hat[p1,p2]
+    #             logging.info('Completed rg of trait {}-{}'.format(p1+1,p2+1))
 
     return sigma_hat
 
@@ -374,7 +405,7 @@ def _posDef_adjustment(mat, scaling_factor=0.99,max_it=1000):
     Checks whether the provided is pos semidefinite. If it is not, then it performs the the adjustment procedure descried in 1.2.2 of the Supplementary Note
 
     scaling_factor: the multiplicative factor that all off-diagonal elements of the matrix are scaled by in the second step of the procedure.
-    max_it: max number of iterations set so that 
+    max_it: max number of iterations set so that
     '''
     logging.info('Checking for positive definiteness ..')
     assert mat.ndim == 2
@@ -393,7 +424,7 @@ def _posDef_adjustment(mat, scaling_factor=0.99,max_it=1000):
         n=0
         while not is_pos_semidef(mat) and n < max_it:
             dg = np.diag(mat)
-            mat = scaling_factor * mat 
+            mat = scaling_factor * mat
             mat[np.diag_indices(P)] = dg
             n += 1
         if n == max_it:
@@ -441,7 +472,7 @@ def extract_gwas_sumstats(DATA, args):
             homogNs_dist_list = [float(x) for x in args.homogNs_dist.split(',')]
             if len(homogNs_dist_list) == 1:
                 homogNs_dist_list = homogNs_dist_list*args.P
-            
+
             assert np.all(np.array(homogNs_dist_list) >=0)
             for p in range(args.P):
                 N_nearMode[:,p] =  np.abs(Ns[:,p] - N_modes[p]) <= homogNs_dist_list[p]
@@ -482,20 +513,21 @@ def extract_gwas_sumstats(DATA, args):
     else:
         orig_case_cols = DATA.columns
         DATA.columns = map(str.upper, DATA.columns)
-        
+
         Fs = DATA.filter(regex='^/MAF|FREQ|FRQ/.').as_matrix()
 
         args.eaf_name = 'freq'
         DATA.columns = orig_case_cols
     assert Zs.shape[1] == Ns.shape[1] == Fs.shape[1]
 
+
     results_template = pd.DataFrame(index=np.arange(len(DATA)))
     results_template.loc[:,args.snp_name] = DATA[args.snp_name]
     # args.chr args.bpos args.alelle_names
     for col in [args.chr_name, args.bpos_name, args.a1_name, args.a2_name]:
         results_template.loc[:,col] = DATA[col+str(0)]
-
-
+    results_template[args.chr_name] = results_template[args.chr_name].astype(int)
+    results_template[args.bpos_name] = results_template[args.bpos_name].astype(int)
 
     return Zs, Ns, Fs, results_template, DATA
 
@@ -565,14 +597,14 @@ def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
     M,P = Zs.shape
     solver_options = dict()
     solver_options['fatol'] = 1.0e-8
-    solver_options['xatol'] = args.tol 
+    solver_options['xatol'] = args.tol
     solver_options['disp'] = False
     solver_options['maxiter'] = P*250 if args.perfect_gencov else P*(P+1)*500
     if args.perfect_gencov:
         x_start = np.log(np.diag(omega_start))
     else:
         x_start = flatten_out_omega(omega_start)
-    
+
     opt_results = scipy.optimize.minimize(_omega_neglogL,x_start,args=(Zs,N_mats,sigma_LD,args),method='Nelder-Mead',options=solver_options)
 
     if args.perfect_gencov:
@@ -637,10 +669,10 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
     # start_time =time.time()
     logging.info('Beginning estimation of Omega ...')
-    
+
     M,P = Zs.shape
     N_mats = np.sqrt(np.einsum('mp, mq -> mpq',Ns, Ns))
-    
+
 
     if args.perfect_gencov and args.equal_h2:
         logging.info('--perfect_gencov and --equal_h2 option used')
@@ -652,7 +684,7 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
             omega_in[np.diag_indices(P)] = np.diag(gmm_omega(Zs,Ns,sigma_LD))
 
         omega_hat = omega_in
-       
+
         omega_hat, opt_results = numerical_omega(args, Zs,N_mats, sigma_LD,omega_hat)
         numerical_msg = "\n Numerical optimization of Omega complete:"
         numerical_msg += "\nSuccessful termination? {}".format("Yes" if opt_results.success else "No")
@@ -683,7 +715,7 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
     # else: gmm_omega (default)
     return _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
-   
+
 ########################
 ## MTAG CALCULATION ####
 ########################
@@ -764,6 +796,9 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
             out_path = args.out +'_trait.txt'
         else:
             out_path = args.out +'_trait_' + str(p+1) + '.txt'
+
+
+        logging.info(out_df) # XXX remove 
         out_df.to_csv(out_path,sep='\t', index=False)
 
     if not args.equal_h2:
@@ -855,15 +890,15 @@ def mtag(args):
 
     # 2. Load Data and perform restrictions
     DATA, args = load_and_merge_data(args)
-    
+
     # 3. Extract core information from combined GWAS data
     Zs , Ns ,Fs, res_temp, DATA = extract_gwas_sumstats(DATA,args)
-    
+
 
     if not args.drop_ambig_snps:
         logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded due to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
     not_SA = np.logical_not(np.array(DATA['strand_ambig']))
-        
+
     # 4. Estimate Sigma
     if args.residcov_path is None:
         logging.info('Estimating sigma..')
@@ -877,8 +912,8 @@ def mtag(args):
         args.sigma_hat = _read_matrix(args.residcov_path)
     args.sigm_hat = _posDef_adjustment(args.sigma_hat)
     logging.info('Sigma hat:\n{}'.format(args.sigm_hat))
-    
-   
+
+
     G_mean_c2_adj = np.mean(np.square(Zs),axis=0) / np.diag(args.sigma_hat)
     low_c2 = G_mean_c2_adj < 1.1
     if np.any(low_c2):
@@ -954,6 +989,16 @@ special_cases.add_argument('--analytic_omega', default=False, action='store_true
 special_cases.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary statistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
 special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all traits used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
 special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all traits passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conjunction with --perfect_gencov')
+
+fdr = parser.add_argument_group(title='Max FDR calculation', description="These options XXX")
+
+
+
+
+
+
+
+
 misc = parser.add_argument_group(title="Miscellaneous")
 
 misc.add_argument('--ld_ref_panel', default=None, action='store',metavar="FOLDER_PATH", type=str, help='Specify folder of the ld reference panel (split by chromosome) that will be used in the estimation of the error VCV (sigma). This option is passed to --ref-ld-chr and --w-ld-chr when running LD score regression. The default is to use the reference panel of LD scores computed from 1000 Genomes European subjects (eur_w_ld_chr) that is included with the distribution of MTAG')

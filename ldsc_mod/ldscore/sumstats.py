@@ -15,6 +15,7 @@ import parse as ps
 import regressions as reg
 import sys
 import traceback
+import logging
 import copy
 import os
 
@@ -224,7 +225,7 @@ def _print_part_delete_values(ldscore_reg, ofh, log):
     '''Prints partitioned block jackknife delete-k values'''
     log.log('Printing partitioned block jackknife delete values to {F}.'.format(F=ofh))
     np.savetxt(ofh, ldscore_reg.part_delete_values)
- 
+
 
 def _merge_and_log(ld, sumstats, noun, log):
     '''Wrap smart merge with log messages about # of SNPs.'''
@@ -379,7 +380,7 @@ def estimate_h2(args, log):
 
 def estimate_rg(args, log):
     '''Estimate rg between trait 1 and a list of other traits.
-       If --rg_mat used, estimate rg between all pairs of traits. 
+       If --rg_mat used, estimate rg between all pairs of traits.
 
         Added sumstats_frames: list of sumstats dataframe to be used for rg. In that case it is no longer necessary to parse and read rg files.
 
@@ -388,10 +389,10 @@ def estimate_rg(args, log):
     user_frames = args.sumstats_frames is not None
     args = copy.deepcopy(args)
     if not user_frames:
-        rg_paths, rg_files = _parse_rg(args.rg)
+        rg_paths, rg_files = _parse_rg(args.rg, args.rg_mat)
         n_pheno = len(rg_paths)
     else:
-        rg_paths, rg_files = _parse_rg(args.rg)
+        rg_paths, rg_files = _parse_rg(args.rg, args.rg_mat)
         n_pheno = len(args.sumstats_frames)
         rg_frames_1 = args.sumstats_frames if args.rg_mat else  args.sumstats_frames[:1]
 
@@ -408,11 +409,14 @@ def estimate_rg(args, log):
     rg_paths_1 = rg_paths if args.rg_mat else rg_paths[:1]
 
     RG = []
-    
+
     rg_list_1 = rg_frames_1 if user_frames else rg_paths_1
     rg_list_2 = args.sumstats_frames if user_frames else rg_paths
     rg_name_tups = []
-    for k, p1 in enumerate(rg_list_1):
+    for k, p1_orig in enumerate(rg_list_1):
+        p1 = p1_orig.copy()
+        #print(k+1)
+        #print(p1.columns)
         out_prefix = args.out + rg_files[k] # YYY make --out writing optional with dataframes
         if user_frames:
             M_annot, w_ld_cname, ref_ld_cnames, sumstats, _ = _read_ld_sumstats(args, log, None, alleles=True, dropna=True,sumstats=p1)
@@ -424,9 +428,11 @@ def estimate_rg(args, log):
         if args.two_step is not None:
             log.log('Using two-step estimator with cutoff at {M}.'.format(M=args.two_step))
 
-        for i in range(k+1, n_pheno):
-            p2 = rg_list_2[i]
-          
+        for i in range(k, n_pheno):
+            #print(i)
+            p2 = rg_list_2[i].copy()
+            #print(p2.columns)
+
             log.log(
                 'Computing rg for phenotypes {K}/{N}-{I}/{N}'.format(K=k+1, I=i +  1, N=len(rg_paths)))
             # try:
@@ -436,7 +442,7 @@ def estimate_rg(args, log):
                 else:
                     loop = _read_other_sumstats(args, log, p2, sumstats, ref_ld_cnames)
                 rghat = _rg(loop, args, log, M_annot, ref_ld_cnames, w_ld_cname, k, i)
-             
+
                 _print_gencor(args, log, rghat, ref_ld_cnames, k,i, rg_paths, i == 0)
                 out_prefix_loop = out_prefix + '_' + rg_files[i ]
                 if args.print_cov:
@@ -454,14 +460,17 @@ def estimate_rg(args, log):
             #     log.log(traceback.format_exc(ex) + '\n')
             #     if len(RG) <= i:  # if exception raised before appending to RG
             #         RG.append(None)
-    log.log('\nSummary of Genetic Correlation Results\n' +
-            _get_rg_table(rg_name_tups, RG, args))
+
+    if not args.rg_mat:
+        pass
+        # log.log('\nSummary of Genetic Correlation Results\n' +
+          #   _get_rg_table(rg_name_tups, RG, args))
 
     if args.rg_mat:
         X = np.array([None for a in range(n_pheno) for b in range(n_pheno)], dtype=object).reshape(n_pheno, n_pheno)
-        X[np.triu_indices(n_pheno, 1)] = RG
+        X[np.triu_indices(n_pheno)] = RG
         for i in range(n_pheno):
-            for j in range(i+1, n_pheno):
+            for j in range(i, n_pheno):
                 X[j,i] =  X[i,j]
         RG = X
         # RG = [RG[k,i] for  k in xrange(len(rg_paths_1)) for i in xrange(k+i, len(rg_paths))]
@@ -475,6 +484,7 @@ def _read_other_sumstats(args, log, fh2, sumstats, ref_ld_cnames, sumstats2=None
         loop = sumstats2
     loop = _merge_sumstats_sumstats(args, sumstats, loop, log)
     loop = loop.dropna(how='any')
+    # print(loop.columns) # XXX take out
     alleles = loop.A1 + loop.A2 + loop.A1x + loop.A2x
     if not args.no_check_alleles:
         loop = _select_and_log(loop, _filter_alleles(alleles), log,
@@ -549,6 +559,12 @@ def _filter_alleles(alleles):
 
 def _align_alleles(z, alleles):
     '''Align Z1 and Z2 to same choice of ref allele (allowing for strand flip).'''
+    logging.info(alleles[:100])
+    logging.info(FLIP_ALLELES)
+    logging.info('XXX Number of bad alleles: {}'.format(len(alleles) - len(np.in1d(alleles, FLIP_ALLELES)) ))
+
+    z *= (-1) ** alleles.apply(lambda y: FLIP_ALLELES[y])
+
     try:
         z *= (-1) ** alleles.apply(lambda y: FLIP_ALLELES[y])
     except KeyError as e:
@@ -578,11 +594,11 @@ def _rg(sumstats, args, log, M_annot, ref_ld_cnames, w_ld_cname, i1, i2):
     return rghat
 
 
-def _parse_rg(rg):
+def _parse_rg(rg, matrix_form):
     '''Parse args.rg.'''
     rg_paths = _splitp(rg)
     rg_files = [x.split('/')[-1] for x in rg_paths]
-    if len(rg_paths) < 2:
+    if len(rg_paths) < 2 and not matrix_form:
         raise ValueError(
             'Must specify at least two phenotypes for rg estimation.')
 

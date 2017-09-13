@@ -736,10 +736,15 @@ def munge_sumstats(args, write_out=True, new_log=True):
                        columns=print_colnames, float_format='%.3f')
             # print(dat.head(10))
             os.system('gzip -f {F}'.format(F=out_fname))
-
+        logging.info('Dropping snps with null values')
+        dat = dat[dat.N.notnull()]
         logging.info('\nMetadata:')
-        CHISQ = (dat.Z ** 2)
+        CHISQ = np.square(dat.Z) # ** 2)
         mean_chisq = CHISQ.mean()
+        logging.info(CHISQ)
+        logging.info(dat)
+        logging.info('XXX dat length')
+        logging.info(len(dat))
         logging.info('Mean chi^2 = ' + str(round(mean_chisq, 3)))
         if mean_chisq < 1.02:
             logging.info("WARNING: mean chi^2 may be too small.")
