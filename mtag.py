@@ -9,7 +9,9 @@ import scipy.optimize
 import argparse
 import itertools
 import time
-import os, sys, gzip, bz2, re
+import os, re
+import joblib
+import sys, gzip, bz2
 import logging
 from argparse import Namespace
 
@@ -272,7 +274,7 @@ def load_and_merge_data(args):
                 if np.sum(snps_to_flip) > 0:
                     zz= args.z_name if args.z_name is not None else 'z'
                     freq_name = args.eaf_name if args.eaf_name is not None else 'freq'
-    
+
                     GWAS_all.loc[snps_to_flip, zz+str(p)] = -1*GWAS_all.loc[snps_to_flip, zz+str(p)]
                     GWAS_all.loc[snps_to_flip, freq_name + str(p)] = 1. - GWAS_all.loc[snps_to_flip, freq_name + str(p)]
                     store_allele = GWAS_all.loc[snps_to_flip, args.a1_name+str(p)]
@@ -370,8 +372,8 @@ def estimate_sigma(data_df, args):
 
 
 
-    # run ldsc 
-    h2_files = None 
+    # run ldsc
+    h2_files = None
     rg_files = args.sumstats
     rg_out = '{}_rg_misc'.format(args.out)
     rg_mat = True
@@ -798,7 +800,6 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
             out_path = args.out +'_trait_' + str(p+1) + '.txt'
 
 
-        logging.info(out_df) # XXX remove 
         out_df.to_csv(out_path,sep='\t', index=False)
 
     if not args.equal_h2:
@@ -842,11 +843,334 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     final_summary += sigma_out
 
     logging.info(final_summary)
+    logging.info(' ')
+    logging.info('MTAG results saved to file.')
+'''
+Functions for maxFDR parallelization
+'''
+create_S = lambda P: np.asarray(list(itertools.product([False,True], repeat=P)))
+
+# def _FDR_par(func_args):
+#     '''
+#     FDR methods for parallelization
+#     '''
+#     probs, t,omega_hat, sigma_hat,S,Ns, coords = func_args
+#     if coords[0] % 1000 == 0:
+#         logging.info('Calculating for {}: {}'.format(coords, probs))
+#     return -1.*compute_fdr(probs, t, omega_hat, sigma_hat, S, Ns)  , coords
 
 
+
+def MTAG_var_Z_jt_c(t, Omega, Omega_c, sigma_LD, Ns): # XXX rename
+
+    '''
+    Omega: full Omega matrix
+    Omega_c: conditional Omega
+    Sigma_LD
+    N_mean: vector of length of "sample sizes" (1/c**2).
+
+    This formula only works with constant N, etc.
+    '''
+    T = Ns.shape[1]
+    W_N = np.einsum('mp,pq->mpq',np.sqrt(Ns),np.eye(T))
+    W_N_inv = np.linalg.inv(W_N)
+    Sigma_j =  np.einsum('mpq,mqr->mpr',np.einsum('mpq,qr->mpr',W_N_inv,sigma_LD),W_N_inv)
+
+    gamma_k = Omega[:,t]
+    tau_k_2 = Omega[t,t]
+
+    om_min_gam = Omega - np.outer(gamma_k, gamma_k) / tau_k_2
+    xx = om_min_gam + Sigma_j
+    inv_xx = np.linalg.inv(xx)
+
+    # num_L / R are the same due to symmetry
+    num_L = np.einsum('p,mpq->mq', gamma_k / tau_k_2, inv_xx)
+    num_R = np.einsum('mpq,q->mp', inv_xx, gamma_k / tau_k_2)
+
+
+    numer = np.einsum('mp,mp->m', num_L, np.einsum('mpq,mq->mp', Omega_c + Sigma_j, num_R))
+
+    denom = np.einsum('p,mp->m', gamma_k / tau_k_2, np.einsum('mpq,q->mp', inv_xx, gamma_k /tau_k_2))
+
+    return numer / denom
+
+
+def simplex_walk(num_dims, samples_per_dim):
+    """
+    A generator that returns lattice points on an n-simplex.
+    """
+    max_ = samples_per_dim + num_dims - 1
+    for c in itertools.combinations(range(max_), num_dims):
+        #print(c)
+        c = list(c)
+        yield np.array([(y - x - 1.) / (samples_per_dim - 1.)
+               for x, y in itertools.izip([-1] + c, c + [max_])])
+
+
+
+def scale_omega(gen_corr_mat, priors, S=None):
+    assert gen_corr_mat.shape[0] == gen_corr_mat.shape[1]
+    T = gen_corr_mat.shape[1]
+    omega = np.zeros_like(gen_corr_mat)
+    if S is None:
+        S = create_S(T)
+    n_S = len(S)
+    for p1 in range(T):
+        for p2 in range(T):
+            # indices of states that are casual for both traits p1 and p2.
+            caus_state = np.arange(n_S)[np.logical_and(S[:, p1], S[:, p2])]
+            # print(np.sum(priors[caus_state]))
+            omega[p1,p2] = gen_corr_mat[p1,p2] / np.sum(priors[caus_state])
+
+    return omega
+
+def compute_fdr(prob, t, omega, sigma, S, Ns, p_threshold):
+
+    z_threshold = scipy.stats.norm.isf(p_threshold / 2.) # magnitude of z-score needed for statistical significance
+    n_S, T = S.shape
+
+    omega_TT = scale_omega(omega, prob, S)
+
+    if not is_pos_semidef(omega_TT):
+        return np.inf
+
+    Omega_s = np.einsum('st,sr->str',S,S) * omega_TT
+
+
+
+    Prob_signif_cond_t = np.zeros(n_S)
+    power_state_t = np.zeros_like(Prob_signif_cond_t)
+
+
+    for k in range(len(S)):
+        sd = np.sqrt(MTAG_var_Z_jt_c(t, omega, Omega_s[k,:,:], sigma, Ns)) #ZZZ generalize to take in Omega_s rather than one state at a time .
+        Prob_signif_cond_t[k] = np.mean(2*scipy.stats.norm.sf(z_threshold, loc=0, scale = sd)) # produces m FDR estimates: take average
+
+        power_state_t[k] = Prob_signif_cond_t[k] * float(prob[k])
+
+    FDR_val = np.sum(power_state_t[~S[:,t]]) / np.sum(power_state_t)
+
+    return FDR_val
+
+
+def is_pos_semidef(m):
+    if m.shape[0] == 2 and m.shape[1] == 2:
+        return np.sqrt(m[0, 0]*m[1,1]) >= np.abs(m[0, 1])
+    else:
+        eigs =  np.linalg.eigvals(m)
+
+    return np.all(eigs >= 0)
+
+
+def neglogL_single_SS(x, beta, se, transformed=True):
+    '''
+    Returns the negative loglikelihood of betas from a spike-slab
+    distribution. Used in the numerical optimziation of the `ss_estimation`.
+
+    Arguments:
+    ----------
+    x: 2-tuple (pi_null, tau). If transformed, `x` consists of bijective transformations of pi_null and tau so that the image of the mapping is all real numbers.
+    betas: The Mx1 vector of betas
+    se:    The Mx1 vector of standard errors. Must allign with the reported betas.
+    transformed: boolean, default True,
+                If True, will perform inverse transformation on pi_null, tau so that they return to their "correct" domain.
+
+    '''
+    if  transformed:
+        prob_null = 1.0 / (1.0 + np.exp(-1 * x[0]))
+        tau = np.exp(-x[1])
+    else:
+        prob_null, tau = x
+
+    causal_pdf = scipy.stats.norm.pdf(beta, loc=0,scale=np.sqrt(tau**2 + se**2))
+    noncausal_pdf = scipy.stats.norm.pdf(beta,loc=0, scale = se)
+
+    return -1* np.sum(np.log( (1.0-prob_null)*causal_pdf + prob_null * noncausal_pdf))
+
+    prob_null = 1.0 / (1.0 + np.exp(-1 * x[0]))
+    tau = np.exp(-x[1])
+
+    causal_pdf = scipy.stats.norm.pdf(beta, loc=0,scale=np.sqrt(tau**2 + se**2))
+    noncausal_pdf = scipy.stats.norm.pdf(beta,loc=0, scale = se)
+
+    return -1* np.sum(np.log( (1.0-prob_null)*causal_pdf + prob_null * noncausal_pdf))
+
+
+
+def ss_estimation(args, betas, se, max_iter=1000, tol=1.0e-10,
+                  starting_params =(0.1, 1.0e-3),
+                  callback=False):
+    '''
+    Numerically fit the distribution of betas and standard errors to a spike slab distribution.
+
+    Arguments:
+    ----------
+    betas: The Mx1 vector of betas
+    se:    The Mx1 vector of standard errors. Must allign with the reported betas.
+    max_iter: int,
+            Maximum number of iterations
+    tol:    float,
+            Tolerance used in numerical optimization (for both fatol, xatol)
+
+    starting_params: 2-tuple: (pi_0, tau_0)
+            Starting parameters for optimization. Default is 0.5, 1.0e-3
+    callback:       boolean ,default False
+            If True, the parameters values will be printed at each step of optimization.
+    '''
+    M,T = betas.shape
+
+    def cback_print(x):
+        logging.info(x)
+
+
+    def _optim_ss(f_args):
+        start_pi, start_tau = starting_params
+        x_0 = ( 1.0/(1.0 + np.exp(-start_pi)), -np.log(start_tau) )
+        beta_t, se_t = f_args
+        solver_opts = dict()
+        solver_opts['maxiter'] = max_iter
+        solver_opts['fatol'] = tol
+        solver_opts['xatol'] = tol
+        solver_opts['disp'] = True
+        optim_results = scipy.optimize.minimize(neglogL_single_SS, x_0, args=(betas, se,True), method='Nelder-Mead', options=solver_opts, callback=None)
+
+        t_pi, t_tau = optim_results.x
+        pi_null =  1.0 / (1.0 + np.exp(-1 * t_pi))
+        tau = np.exp(-t_tau)
+        return pi_null, tau
+
+    callback = cback_print if callback else None
+    arg_list_ss = [(betas[:,t], se[:,t]) for t in range(T)]
+    ss_results =  joblib.Parallel(n_jobs = args.cores,
+                                          backend='multiprocessing',
+                                          verbose=0,
+                                          batch_size=1)(joblib.delayed(_optim_ss)(f_args) for f_args in arg_list_ss)
+    return ss_results
+
+
+def causal_prob(probs, S):
+    n_S,T = S.shape
+
+def some_causal_for_allT(probs, S):
+    # probability of being causal is nonzero for all traits
+    n_S, T = S.shape
+    # print(probs)
+    if not np.all([np.sum(probs[S[:,t]]) > 0 for t in range(T)]):
+        return False
+    for p1 in range(T):
+        for p2 in range(T):
+            # indices of states that are casual for both traits p1 and p2.
+            caus_state = np.arange(n_S)[np.logical_and(S[:, p1], S[:, p2])]
+            # print(np.sum(priors[caus_state]))
+            if np.sum(probs[caus_state]) == 0:
+                return False
+    return True
+
+def _FDR_par(func_args):
+    '''
+    FDR methods for parallelization
+    omega_hat, sigma_hat, S, Ns,
+    '''
+    probs, omega_hat, sigma_hat, S, Ns, p_sig, g, t = func_args
+    return compute_fdr(probs, t, omega_hat, sigma_hat, S, Ns, p_sig)  , (g,t)
+
+def fdr(args, Ns, Zs):
+    '''
+     Ns: Mx T matrix of sample sizes
+    '''
+    M,T = Ns.shape
+    if not args.grid_file:
+        if args.intervals <= 0:
+            raise ValueError('spacing of grid points for the max FDR calculation must be a positive integer')
+
+    logging.info('T='+str(T))
+    S = create_S(T)
+    causal_prob = lambda x, SS: np.sum(np.einsum('s,st->st',x,SS),axis=0)
+
+    if args.grid_file is not None:
+        prob_grid = np.loadtxt(args.grid_file)
+        # exclude rows that don't sum to 1
+        prob_grid = prob_grid[(np.sum(prob_grid, axis=1) > 1.) & np.sum(prob_grid, axis=1) < 0]
+    else:
+        # automate the creation of the probability grid
+        # one_dim_interval = np.linspace(0., 1., args.intervals +1)
+        prob_grid = simplex_walk(len(S)-1, args.intervals+1)
+    # exclude probabilities that have at least one trait with zero pi_causal
+    # exclude probabilities that don't yield a valid NPD matrix
+    prob_grid = [x for x in prob_grid if some_causal_for_allT(x,S) and is_pos_semidef(scale_omega(args.omega_hat, x,S))]
+
+    if args.fit_ss:
+        gwas_se = 1. / np.sqrt(Ns)
+        gwas_betas = gwas_se * Zs
+
+        ss_params_list = ss_estimation(args, gwas_betas, gwas_se)
+        pi_causal_ss = np.array([1.- x[0] for x in ss_params_list])
+        logging.info('Completed estimation of spike-slab parameters resulting in the following causal probabilities')
+        for t in range(T):
+            logging.info('Trait {}: \t {:.3f}'.format(t, pi_causal_ss[t]))
+
+        # P0 = len(prob_grid)
+        prob_grid = [p for p in prob_grid if np.all(np.abs(causal_prob(p)-pi_causal_ss) < (1. / args.intervals) ) ]
+        logging.info('{} probabilities remain after restricting to the grid points with causal probabilities within one unit for each trait'.format(len(prob_grid)))
+        # P0 = len(prob_grid)
+
+
+    logging.info('Number of gridpoints to search: {}'.format(len(prob_grid)))
+
+    FDR = -1.23 * np.ones((len(prob_grid), T))
+
+    # performing coarse grid search
+    logging.info('Performing grid search using {} cores.'.format(args.cores))
+
+
+    N_vals = np.mean(Ns, axis=0, keepdims=True) if args.n_approx else Ns
+
+
+    # # define parallelization function
+    # def _FDR_par(func_args):
+    #     '''
+    #     FDR methods for parallelization
+    #     omega_hat, sigma_hat, S, Ns,
+    #     '''
+    #     probs, g, t = func_args
+    #     return compute_fdr(probs, t, args.omega_hat, args.sigma_hat, S, Ns, args.p_sig)  , (g,t)
+
+    arg_list = [(probs, args.omega_hat, args.sigm_hat, S, N_vals, args.p_sig, g, t) for t in range(T) for g, probs in enumerate(prob_grid)]
+    NN = len(arg_list)
+    K = 10
+    start_fdr =time.time()
+    for k in range(K):
+        k0 = int(k*NN / K)
+        k1 = int((k+1) * NN / K)
+        sublist = arg_list[k0:k1] if k + 1 != K else arg_list[k0:]
+        grid_results =  joblib.Parallel(n_jobs = args.cores,
+                                          backend='multiprocessing',
+                                          verbose=0,
+                                          batch_size='auto')(joblib.delayed(_FDR_par)(f_args) for f_args in sublist)
+        logging.info('Grid search: {} percent finished for . Time: \t{:.3f} min'.format((k+1)*100./K, (time.time()-start_fdr)/ 60.))
+        for i in range(len(grid_results)):
+            FDR_gt, coord = grid_results[i] # coord = (g,t)
+            FDR[coord[0], coord[1]] = FDR_gt
+
+        np.savetxt(args.out + '_fdr_mat.txt', FDR, delimiter='\t')
+        np.savetxt(args.out + '_prob_grid.txt', prob_grid, delimiter='\t')
+
+    # save FDR file once more
+    np.savetxt(args.out+'_fdr_mat.txt', FDR, delimiter='\t')
+    logging.info('Saved calculations of fdr over grid points in {}'.format(args.out+'_fdr_mat.txt'))
+
+    logging.info(borderline)
+    ind_max = np.argmax(FDR, axis=0)
+    logging.info('grid point indices for max FDR for each trait: {}'.format(ind_max))
+    max_FDR = np.max(FDR, axis=0)
+    logging.info('Maximum FDR')
+    for t in range(T):
+        logging.info('Max FDR of Trait {}: {} at probs = {}'.format(t+1, max_FDR[t], prob_grid[ind_max[t]]))
+
+    logging.info(borderline)
+    logging.info('Completed FDR calculations.')
 
 def mtag(args):
-
 
     #1. Administrative checks
     if args.equal_h2 and not args.perfect_gencov:
@@ -942,7 +1266,20 @@ def mtag(args):
     #7. Output GWAS_results
     save_mtag_results(args, res_temp,Zs,Ns, Fs,mtag_betas,mtag_se)
 
+
+
+    if args.fdr:
+
+        logging.info('Beginning maxFDR calculations. Depending on the number of grid points specified, this might take some time...')
+
+        fdr(args, Ns, Zs)
+        ### ZZZ use function fdr(args, Ns)
+
+
     logging.info('MTAG complete. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
+
+
+
 
 parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-separated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimating residual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. The default estimation method for the genetic covariance matrix Omega is GMM (as described in the paper). \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
 
@@ -990,12 +1327,27 @@ special_cases.add_argument('--no_overlap', default=False, action='store_true', h
 special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all traits used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
 special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all traits passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conjunction with --perfect_gencov')
 
-fdr = parser.add_argument_group(title='Max FDR calculation', description="These options XXX")
+fdr_opts = parser.add_argument_group(title='Max FDR calculation', description="These options are used for the calculation of an upper bound on the false disovery under the model described in Supplementary Note 1.1.4 of Turley et al. (2017). Note that there is one of three ways to define the space of grid points over which the upper bound is searched. ")
+
+fdr_opts.add_argument('--fdr', default=False, action='store_true', help='Perform max FDR calculations')
+# fdr_opts.add_argument(title='--skip-mtag', default=False, action='store_true',) # XXX make option to skip mtag calculations if already done.
+# make mutually exclusive group
+fdr_opts.add_argument('--grid_file',default=None, action='store', help='Pre-set list of grid points. Users can define a list of grid points over which the search is conducted. The list of grid points should be passed in text file as a white-space delimited matrix of dimnesions, G x S, where G is the number of grid points and S = 2^T is the number of possible causal states for SNPs. States are ordered according to a tree-like recursive structure from right to left. For example, for 3 traits, with the triple TFT denoting the state for which SNPs are causal for State 1, not causal for state 2, and causal for state 3, then the column ordering of probabilities should be: \nFFF FFT FTF FTT TFF TFT TTF TTT\n There should be no headers, or row names in the file. Any rows for which (i) the probabilities do not sum to 1, the prior of a SNP being is causal is 0 for any of the traits, and (iii) the resulting genetic correlation matrix is non positive definite will excluded in the search.')
+# XXX rounding to 1e-6 & restandardize.
+
+fdr_opts.add_argument('--fit_ss', default=False, action='store_true', help='This estimates the prior probability that a SNP is null for each trait and then proceeds to restrict the grid search to the set of probability vectors that sum to the prior null for each trait. This is useful for restrict the search space of larger-dimensional traits.')
+
+fdr_opts.add_argument('--intervals', default=10, action='store',type=int, help='Number of intervals that you would like to partition the [0,1] interval. For example example, with two traits and --intervals set 10, then maxFDR will calculated over the set of feasible points in {0., 0.1, 0.2,..,0.9,1.0}^2.')
+
+fdr_opts.add_argument('--cores', default=1, action='store', type=int, help='Number of threads/cores use to compute the FDR grid points for each trait.')
+
+fdr_opts.add_argument('--p_sig', default=5.0e-8, action='store', help='P-value threshold used for statistical signifiance. Default is p=5.0e-8 (genome-wide significance).' )
+fdr_opts.add_argument('--n_approx', default=False, action='store_true', help='Speed up FDR calculation by replacing the sample size of a SNP for each trait by the mean across SNPs (for each trait). Recommended.')
 
 
-
-
-
+wc = parser.add_argument_group(title='Winner\'s curse adjustment', description='Options related to the winner\'s curse adjustment of estimates of effect sizes from MTAG that could be used when replicating analyses.')
+# GWAS or MTAG results?
+# maybe both?
 
 
 

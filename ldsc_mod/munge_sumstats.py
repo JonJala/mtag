@@ -523,7 +523,7 @@ parser.add_argument('--keep-str-ambig', default=False, action='store_true',
 parser.add_argument('--input-datgen', default=None, action='store',
                     help=argparse.SUPPRESS) # When calling munge_sumstats directly through Python, you can pass the generator of df chunks directly rather than reading from data.
 parser.add_argument('--cnames', default=None, action='store',
-                    help=argparse.SUPPRESS ) # lsit of column names that must be passed alongside the input datgen. 
+                    help=argparse.SUPPRESS ) # lsit of column names that must be passed alongside the input datgen.
 
 
 # set p = False for testing in order to prevent printing
@@ -545,7 +545,7 @@ def munge_sumstats(args, write_out=True, new_log=True):
             raise ValueError(
                 '--no-alleles and --merge-alleles are not compatible.')
         if args.daner and args.daner_n:
-            raise ValueError('--daner and --daner-n are not compatible. Use --daner for sample ' + 
+            raise ValueError('--daner and --daner-n are not compatible. Use --daner for sample ' +
             'size from FRQ_A/FRQ_U headers, use --daner-n for values from Nca/Nco columns')
 
         if write_out:
@@ -562,7 +562,7 @@ def munge_sumstats(args, write_out=True, new_log=True):
 
         file_cnames = read_header(args.sumstats) if args.input_datgen is None else args.cnames  # note keys not cleaned
         flag_cnames, signed_sumstat_null = parse_flag_cnames(args)
-        if args.ignore: 
+        if args.ignore:
             ignore_cnames = [clean_header(x) for x in args.ignore.split(',')]
         else:
             ignore_cnames = []
@@ -599,7 +599,7 @@ def munge_sumstats(args, write_out=True, new_log=True):
                 dan_cas = clean_header(file_cnames[file_cnames.index('Nca')])
             except ValueError:
                 raise ValueError('Could not find Nca column expected for daner-n format')
-        
+
             try:
                 dan_con = clean_header(file_cnames[file_cnames.index('Nco')])
             except ValueError:
@@ -741,10 +741,6 @@ def munge_sumstats(args, write_out=True, new_log=True):
         logging.info('\nMetadata:')
         CHISQ = np.square(dat.Z) # ** 2)
         mean_chisq = CHISQ.mean()
-        logging.info(CHISQ)
-        logging.info(dat)
-        logging.info('XXX dat length')
-        logging.info(len(dat))
         logging.info('Mean chi^2 = ' + str(round(mean_chisq, 3)))
         if mean_chisq < 1.02:
             logging.info("WARNING: mean chi^2 may be too small.")
