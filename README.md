@@ -13,6 +13,7 @@ To run `mtag`, you will need to have Python 2.7 installed with the following pac
 * `pandas`
 * `argparse`
 * `bitarray` (for `ldsc`)
+* `joblib`
 
 
 
