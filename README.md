@@ -57,9 +57,13 @@ This project is licensed under GNU General Public License v3.
 
 ### Authors
 
-Omeed Maghzian (Harvard University Department of Economics)
+Omeed Maghzian (Harvard University, Department of Economics)
 
 Raymond Walters (Broad Institute of MIT and Harvard)
 
 Patrick Turley (Broad Institute of MIT and Harvard)
+
+### Acknowledgments
+
+The development of this software was carried out under the auspices of the Social Science Genetic Association Consortium (SSGAC). This work was supported by the Ragnar Söderberg Foundation (E9/11 E42/15), the Swedish Research Council (421-2013-1061), The Jan Wallander and Tom Hedelius Foundation, an ERC Consolidator Grant (647648 EdGe), the Pershing Square Fund of the Foundations of Human Behavior, the National Science Foundation’s Graduate Research Fellowship Program (DGE 1144083), and the NIA/NIH through grants P01-AG005842, P01-AG005842-20S2, P30-AG012810, and T32-AG000186-23 to NBER, R01-AG042568-02 to the University of Southern California, and 1R01MH107649-01and 1R01MH101244-02 to the Broad Institute at Harvard and MIT. 
 
