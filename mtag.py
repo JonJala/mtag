@@ -861,7 +861,7 @@ create_S = lambda P: np.asarray(list(itertools.product([False,True], repeat=P)))
 
 
 
-def MTAG_var_Z_jt_c(t, Omega, Omega_c, sigma_LD, Ns): # XXX rename
+def MTAG_var_Z_jt_c(t, Omega, Omega_c, sigma_LD, Ns):
 
     '''
     Omega: full Omega matrix
@@ -871,6 +871,8 @@ def MTAG_var_Z_jt_c(t, Omega, Omega_c, sigma_LD, Ns): # XXX rename
 
     This formula only works with constant N, etc.
     '''
+
+
     T = Ns.shape[1]
     W_N = np.einsum('mp,pq->mpq',np.sqrt(Ns),np.eye(T))
     W_N_inv = np.linalg.inv(W_N)
@@ -924,7 +926,7 @@ def scale_omega(gen_corr_mat, priors, S=None):
 
     return omega
 
-def compute_fdr(prob, t, omega, sigma, S, Ns, p_threshold):
+def compute_fdr(prob, t, omega, sigma, S, Ns,N_counts, p_threshold):
 
     z_threshold = scipy.stats.norm.isf(p_threshold / 2.) # magnitude of z-score needed for statistical significance
     n_S, T = S.shape
@@ -944,7 +946,7 @@ def compute_fdr(prob, t, omega, sigma, S, Ns, p_threshold):
 
     for k in range(len(S)):
         sd = np.sqrt(MTAG_var_Z_jt_c(t, omega, Omega_s[k,:,:], sigma, Ns)) #ZZZ generalize to take in Omega_s rather than one state at a time .
-        Prob_signif_cond_t[k] = np.mean(2*scipy.stats.norm.sf(z_threshold, loc=0, scale = sd)) # produces m FDR estimates: take average
+        Prob_signif_cond_t[k] = np.sum(2*scipy.stats.norm.sf(z_threshold, loc=0, scale = sd)*N_counts) / float(np.sum(N_counts)) # produces m FDR estimates: take average by weighting each unique sample size row with the counts of SNPs with that sample size (weighted average, denominator will be equal to M)
 
         power_state_t[k] = Prob_signif_cond_t[k] * float(prob[k])
 
@@ -1071,18 +1073,25 @@ def _FDR_par(func_args):
     FDR methods for parallelization
     omega_hat, sigma_hat, S, Ns,
     '''
-    probs, omega_hat, sigma_hat, S, Ns, p_sig, g, t = func_args
-    return compute_fdr(probs, t, omega_hat, sigma_hat, S, Ns, p_sig)  , (g,t)
+    probs, omega_hat, sigma_hat, S, Ns, N_counts, p_sig, g, t = func_args
+    return compute_fdr(probs, t, omega_hat, sigma_hat, S, Ns, N_counts, p_sig)  , (g,t)
 
 def fdr(args, Ns, Zs):
     '''
      Ns: Mx T matrix of sample sizes
     '''
-    M,T = Ns.shape
+    # M,T = Ns.shape
+
+    # only use unique values
     if not args.grid_file:
         if args.intervals <= 0:
             raise ValueError('spacing of grid points for the max FDR calculation must be a positive integer')
 
+
+    Ns_unique, Ns_counts = np.unique(Ns, return_counts=True, axis=0)
+
+    M_eff, T = Ns_unique.shape
+  
     logging.info('T='+str(T))
     S = create_S(T)
     causal_prob = lambda x, SS: np.sum(np.einsum('s,st->st',x,SS),axis=0)
@@ -1123,8 +1132,8 @@ def fdr(args, Ns, Zs):
     logging.info('Performing grid search using {} cores.'.format(args.cores))
 
 
-    N_vals = np.mean(Ns, axis=0, keepdims=True) if args.n_approx else Ns
-
+    N_vals = np.mean(Ns, axis=0, keepdims=True) if args.n_approx else Ns_unique
+    N_weights = np.ones(1) if args.n_approx else Ns_counts
 
     # # define parallelization function
     # def _FDR_par(func_args):
@@ -1135,7 +1144,11 @@ def fdr(args, Ns, Zs):
     #     probs, g, t = func_args
     #     return compute_fdr(probs, t, args.omega_hat, args.sigma_hat, S, Ns, args.p_sig)  , (g,t)
 
-    arg_list = [(probs, args.omega_hat, args.sigm_hat, S, N_vals, args.p_sig, g, t) for t in range(T) for g, probs in enumerate(prob_grid)]
+
+    if not args.n_approx:
+        assert np.sum(N_weights) == len(Ns)
+
+    arg_list = [(probs, args.omega_hat, args.sigm_hat, S, N_vals,N_weights, args.p_sig, g, t) for t in range(T) for g, probs in enumerate(prob_grid)]
     NN = len(arg_list)
     K = 10
     start_fdr =time.time()
@@ -1343,6 +1356,8 @@ fdr_opts.add_argument('--cores', default=1, action='store', type=int, help='Numb
 
 fdr_opts.add_argument('--p_sig', default=5.0e-8, action='store', help='P-value threshold used for statistical signifiance. Default is p=5.0e-8 (genome-wide significance).' )
 fdr_opts.add_argument('--n_approx', default=False, action='store_true', help='Speed up FDR calculation by replacing the sample size of a SNP for each trait by the mean across SNPs (for each trait). Recommended.')
+
+# fdr_opts.add_argument('--binned_n', default=False, action='store_true', help='When --n_approx is off, this options allows for a sped-up version of the max_FDR calculation by weighting the power calculations of unique rows.')
 
 
 wc = parser.add_argument_group(title='Winner\'s curse adjustment', description='Options related to the winner\'s curse adjustment of estimates of effect sizes from MTAG that could be used when replicating analyses.')
