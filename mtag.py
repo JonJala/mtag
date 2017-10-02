@@ -1076,7 +1076,7 @@ def _FDR_par(func_args):
     probs, omega_hat, sigma_hat, S, Ns, N_counts, p_sig, g, t = func_args
     return compute_fdr(probs, t, omega_hat, sigma_hat, S, Ns, N_counts, p_sig)  , (g,t)
 
-def fdr(args, Ns, Zs):
+def fdr(args, Ns_f, Zs):
     '''
      Ns: Mx T matrix of sample sizes
     '''
@@ -1087,7 +1087,7 @@ def fdr(args, Ns, Zs):
         if args.intervals <= 0:
             raise ValueError('spacing of grid points for the max FDR calculation must be a positive integer')
 
-
+    Ns = np.round(Ns_f) # round to avoid decimals
     Ns_unique, Ns_counts = np.unique(Ns, return_counts=True, axis=0)
 
     M_eff, T = Ns_unique.shape
