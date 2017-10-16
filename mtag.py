@@ -528,8 +528,9 @@ def extract_gwas_sumstats(DATA, args):
     # args.chr args.bpos args.alelle_names
     for col in [args.chr_name, args.bpos_name, args.a1_name, args.a2_name]:
         results_template.loc[:,col] = DATA[col+str(0)]
-    results_template[args.chr_name] = results_template[args.chr_name].astype(int)
-    results_template[args.bpos_name] = results_template[args.bpos_name].astype(int)
+    # TODO: non-error form of integer conversion
+    # results_template[args.chr_name] = results_template[args.chr_name].astype(int)
+    # results_template[args.bpos_name] = results_template[args.bpos_name].astype(int)
 
     return Zs, Ns, Fs, results_template, DATA
 
