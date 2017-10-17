@@ -20,7 +20,7 @@ from ldsc_mod.ldscore import allele_info
 
 import ldsc_mod.munge_sumstats as munge_sumstats
 
-__version__ = '1.0.1'
+__version__ = '1.0.2'
 
 borderline = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>"
 
@@ -35,7 +35,7 @@ header += "<> GNU General Public License v3\n"
 header += borderline + "\n"
 header += "<> Note:  It is recommended to run your own QC on the input before using this program. \n"
 header += "<> Software-related correspondence: maghzian@nber.org \n"
-header += "<> All other correspondence: paturley@broadinstitute.org"
+header += "<> All other correspondence: paturley@broadinstitute.org \n"
 header += borderline +"\n"
 header += "\n\n"
 
@@ -97,7 +97,7 @@ def _read_matrix(file_path):
     if ext == '.txt':
         return np.loadtxt(file_path)
     else:
-        raise ValueError("{} is not one of the acceptable file paths for reading in matrix-valued objects.")
+        raise ValueError('{} is not one of the acceptable file paths for reading in matrix-valued objects.'.format(ext))
 
 ## LDSC related functions
 def sec_to_str(t):
@@ -385,20 +385,6 @@ def estimate_sigma(data_df, args):
     sigma_hat = ldsc_matrix_formatter(rg_results, '.gencov.intercept')
     logging.info(type(sigma_hat))
     logging.info(sigma_hat)
-    # run ldsc
-    # for p1 in range(args.P):
-    #     for p2 in range (p1,args.P): #TODO make p1->p1+1 and use h2 estimates
-    #         if (p1 == p2 and args.no_overlap) or not args.no_overlap:
-    #             h2_files = None
-    #             # rg_files = '{X}.sumstats.gz,{Y}.sumstats.gz'.format(X=save_paths_postmunge[p1],Y=save_paths_postmunge[p2])
-    #             rg_files = args.sumstats # only the file name matters
-    #             rg_out = '{}_rg_misc'.format(args.out)
-    #             args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=args.maf_min,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[gwas_ss_df[p1], gwas_ss_df[p2]], rg_mat=False)
-    #             rg_results =  sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())[0]
-
-    #             sigma_hat[p1,p2] = rg_results.gencov.intercept
-    #             sigma_hat[p2,p1] = sigma_hat[p1,p2]
-    #             logging.info('Completed rg of trait {}-{}'.format(p1+1,p2+1))
 
     return sigma_hat
 
@@ -1360,12 +1346,9 @@ fdr_opts.add_argument('--n_approx', default=False, action='store_true', help='Sp
 
 # fdr_opts.add_argument('--binned_n', default=False, action='store_true', help='When --n_approx is off, this options allows for a sped-up version of the max_FDR calculation by weighting the power calculations of unique rows.')
 
-
-wc = parser.add_argument_group(title='Winner\'s curse adjustment', description='Options related to the winner\'s curse adjustment of estimates of effect sizes from MTAG that could be used when replicating analyses.')
+# wc = parser.add_argument_group(title='Winner\'s curse adjustment', description='Options related to the winner\'s curse adjustment of estimates of effect sizes from MTAG that could be used when replicating analyses.')
 # GWAS or MTAG results?
 # maybe both?
-
-
 
 misc = parser.add_argument_group(title="Miscellaneous")
 
