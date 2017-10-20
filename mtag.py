@@ -20,7 +20,7 @@ from ldsc_mod.ldscore import allele_info
 
 import ldsc_mod.munge_sumstats as munge_sumstats
 
-__version__ = '1.0.2'
+__version__ = '1.0.3    '
 
 borderline = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>"
 
@@ -380,10 +380,22 @@ def estimate_sigma(data_df, args):
 
     args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=None,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[ gwas_ss_df[i] for i in range(args.P)], rg_mat=rg_mat)
 
-    rg_results =  sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())
+    if args.no_overlap:
+        sigma_hat = np.zeros((args.P, args.P))
+        for t in range(args.P):
+            args_ldsc_rg.sumstats_frames = [gwas_ss_df[t]]
+            rg_results_t = sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())
+            sigma_hat[t,t] =  ldsc_matrix_formatter(rg_results_t, '.gencov.intercept')[0]
+    else:
+        rg_results =  sumstats_sig.estimate_rg(args_ldsc_rg, Logger_to_Logging())
 
-    sigma_hat = ldsc_matrix_formatter(rg_results, '.gencov.intercept')
-    logging.info(type(sigma_hat))
+        sigma_hat = ldsc_matrix_formatter(rg_results, '.gencov.intercept')
+
+    # if args.no_overlap:
+    #     T = sigma_hat.shape[0]
+    #     sigma_hat = sigma_hat * np.eye(T)
+
+    # logging.info(type(sigma_hat))
     logging.info(sigma_hat)
 
     return sigma_hat
@@ -1078,7 +1090,7 @@ def fdr(args, Ns_f, Zs):
     Ns_unique, Ns_counts = np.unique(Ns, return_counts=True, axis=0)
 
     M_eff, T = Ns_unique.shape
-  
+
     logging.info('T='+str(T))
     S = create_S(T)
     causal_prob = lambda x, SS: np.sum(np.einsum('s,st->st',x,SS),axis=0)
