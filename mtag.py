@@ -1203,7 +1203,10 @@ def mtag(args):
     header_sub = header_sub[0:-1] + '\n'
 
     if args.ld_ref_panel is None:
-        mtag_path = re.findall(".*/",__file__)[0]
+        # mtag_path =-os.path.dirname(os.path.abspath(__file__))
+        
+        mtag_path = os.path.dirname(os.path.abspath(__file__)) +"/"
+        
         args.ld_ref_panel = mtag_path+'ld_ref_panel/eur_w_ld_chr/'
 
     start_time = time.time()  # starting time of analysis
