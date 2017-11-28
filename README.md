@@ -8,9 +8,9 @@ We recommend installing the [Anaconda python distribution](https://www.continuum
 
 To run `mtag`, you will need to have Python 2.7 installed with the following packages:
 
-* `numpy`
+* `numpy (>= 1.13.1)`  
 * `scipy`
-* `pandas`
+* `pandas (>= 0.18.1)`
 * `argparse`
 * `bitarray` (for `ldsc`)
 * `joblib`
