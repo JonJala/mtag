@@ -20,7 +20,7 @@ from ldsc_mod.ldscore import allele_info
 
 import ldsc_mod.munge_sumstats as munge_sumstats
 
-__version__ = '1.0.3    '
+__version__ = '1.0.6'
 
 borderline = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>"
 
@@ -135,8 +135,12 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
     if args.info_min is None:
         ignore_list += "info"
 
+    a1_munge = None if args.a1_name == "a1" else args.a1_name
+    a2_munge = None if args.a2_name == "a2" else args.a2_name
+    eaf_munge = None if args.eaf_name == "freq" else args.eaf_name
+
     # sumstats is set to null because generator passed manually
-    argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=None, a2=None, p=None,frq=args.eaf_name,signed_sumstats=zz+',0', info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
+    argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=a1_munge, a2=a2_munge, p=None,frq=eaf_munge,signed_sumstats=zz+',0', info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
 
     logging.info(borderline)
     logging.info('Munging Trait {}  {}'.format(p+1,borderline[:-17]))
@@ -444,13 +448,9 @@ def extract_gwas_sumstats(DATA, args):
     Ns: matrix of sample sizes
     Fs: matrix of allele frequencies
     '''
-    if args.n_name is not None:
-        n_cols = [args.n_name +str(p) for p in range(args.P)]
-        Ns = DATA.filter(items=n_cols).as_matrix()
-    else:
-        Ns = DATA.filter(regex='^[nN].').as_matrix()
-        args.n_name = 'n'
-
+    n_cols = [args.n_name +str(p) for p in range(args.P)]
+    Ns = DATA.filter(items=n_cols).as_matrix()
+    
     # Apply sample-size specific filters
 
     N_passFilter = np.ones(len(Ns), dtype=bool)
@@ -1312,8 +1312,8 @@ out_opts.add_argument("--make_full_path", default=False, action="store_true", he
 
 input_formatting = parser.add_argument_group(title="Column names of input files", description="These options manually pass the names of the relevant summary statistics columns used by MTAG. It is recommended to pass these names because only narrow searches for these columns are performed in the default cases. Moreover, it is necessary that these input files be readable by ldsc's munge_sumstats command.")
 input_formatting.add_argument("--snp_name", default="snpid", action="store",type=str, help="Name of the single column that provides the unique identifier for SNPs in the GWAS summary statistics across all GWAS results. Default is \"snpid\". This the index that will be used to merge the GWAS summary statistics. Any SNP lists passed to ---include or --exclude should also contain the same name.")
-input_formatting.add_argument("--z_name", default=None, help="The common name of the column of Z scores across all input files. Default is to search for columns beginning with the lowercase letter z.")
-input_formatting.add_argument("--n_name", default=None, help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is to search for columns beginning with the lowercase letter  n.")
+input_formatting.add_argument("--z_name", default="z", help="The common name of the column of Z scores across all input files. Default is the lowercase letter z.")
+input_formatting.add_argument("--n_name", default="n", help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is the lowercase letter  n.")
 input_formatting.add_argument('--eaf_name',default="freq", help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is \"freq\".")
 input_formatting.add_argument('--chr_name',default='chr', type=str, help="Name of the column containing the chromosome of each SNP in the GWAS input. Default is \"chr\".")
 input_formatting.add_argument('--bpos_name',default='bpos', type=str, help="Name of the column containing the base pair of each SNP in the GWAS input. Default is \"bpos\".")
