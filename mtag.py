@@ -74,14 +74,14 @@ def _read_SNPlist(file_path, SNP_index):
         raise ValueError("SNPlist read from {} does include --snp_name {} in its columns.".format(file_path, SNP_index))
     return pd.read_csv(file_path, header=0, index_col=False)
 
-def _read_GWAS_sumstats(GWAS_file_name):
+def _read_GWAS_sumstats(GWAS_file_name, chunksize):
     '''
     read GWAS summary statistics from file that is in one of the acceptable formats.
     '''
     # TODO read more file types
-    (openfunc, compression) = munge_sumstats.get_compression(args.sumstats)
+    (openfunc, compression) = munge_sumstats.get_compression(GWAS_file_name)
     dat_gen = pd.read_csv(GWAS_file_name, index_col=False, header=0,delim_whitespace=True, compression=compression, na_values=['.','NA'],
-        iterator=True, chunksize=args.chunksize)
+        iterator=True, chunksize=chunksize)
     dat_gen = list(dat_gen)
     dat_gen_unfiltered = pd.concat(dat_gen, axis=0).reset_index(drop=True)
 
@@ -222,7 +222,7 @@ def load_and_merge_data(args):
     GWAS_d = dict()
     sumstats_format = dict()
     for p, GWAS_input in enumerate(GWAS_input_files):
-        GWAS_d[p], gwas_dat_gen = _read_GWAS_sumstats(GWAS_input)
+        GWAS_d[p], gwas_dat_gen = _read_GWAS_sumstats(GWAS_input, args.chunksize)
         # add suffix
         logging.info('Read in Trait {} summary statistics ({} SNPs) from {} ...'.format(p+1,len(GWAS_d[p]), GWAS_input))
 
@@ -498,7 +498,7 @@ def extract_gwas_sumstats(DATA, args):
         N_passFilter = np.logical_and(N_passFilter, np.all(N_passMax,axis=1))
 
     Ns = Ns[N_passFilter]
-    DATA = DATA[N_passFilter]
+    DATA = DATA[N_passFilter].reset_index()
 
     if args.z_name is not None:
         z_cols = [args.z_name +str(p) for p in range(args.P)]
@@ -520,9 +520,9 @@ def extract_gwas_sumstats(DATA, args):
         DATA.columns = orig_case_cols
     assert Zs.shape[1] == Ns.shape[1] == Fs.shape[1]
 
-
-    results_template = pd.DataFrame(index=np.arange(len(DATA)))
-    results_template.loc[:,args.snp_name] = DATA[args.snp_name]
+    results_template = DATA[[args.snp_name]].copy()
+    # results_template = pd.DataFrame(index=np.arange(len(DATA)))
+    # results_template.loc[:,args.snp_name] = DATA[args.snp_name]
     # args.chr args.bpos args.alelle_names
     for col in [args.chr_name, args.bpos_name, args.a1_name, args.a2_name]:
         results_template.loc[:,col] = DATA[col+str(0)]
