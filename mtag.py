@@ -20,14 +20,14 @@ from ldsc_mod.ldscore import allele_info
 
 import ldsc_mod.munge_sumstats as munge_sumstats
 
-__version__ = '1.0.6'
+__version__ = '1.0.7'
 
 borderline = "<><><<>><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><><>"
 
 header ="\n"
 header += borderline +"\n"
 header += "<>\n"
-header += "<> MTAG: Multitrait Analysis of GWAS \n"
+header += "<> MTAG: Multi-trait Analysis of GWAS \n"
 header += "<> Version: {}\n".format(str(__version__))
 header += "<> (C) 2017 Omeed Maghzian, Raymond Walters, and Patrick Turley\n"
 header += "<> Harvard University Department of Economics / Broad Institute of MIT and Harvard\n"
@@ -450,7 +450,7 @@ def extract_gwas_sumstats(DATA, args):
     '''
     n_cols = [args.n_name +str(p) for p in range(args.P)]
     Ns = DATA.filter(items=n_cols).as_matrix()
-    
+
     # Apply sample-size specific filters
 
     N_passFilter = np.ones(len(Ns), dtype=bool)
@@ -986,20 +986,28 @@ def neglogL_single_SS(x, beta, se, transformed=True):
     causal_pdf = scipy.stats.norm.pdf(beta, loc=0,scale=np.sqrt(tau**2 + se**2))
     noncausal_pdf = scipy.stats.norm.pdf(beta,loc=0, scale = se)
 
-    return -1* np.sum(np.log( (1.0-prob_null)*causal_pdf + prob_null * noncausal_pdf))
+    return -1. * np.sum(np.log( (1.0-prob_null)*causal_pdf + prob_null * noncausal_pdf))
 
-    prob_null = 1.0 / (1.0 + np.exp(-1 * x[0]))
-    tau = np.exp(-x[1])
 
-    causal_pdf = scipy.stats.norm.pdf(beta, loc=0,scale=np.sqrt(tau**2 + se**2))
-    noncausal_pdf = scipy.stats.norm.pdf(beta,loc=0, scale = se)
+def cback_print(x):
+    logging.info(x)
 
-    return -1* np.sum(np.log( (1.0-prob_null)*causal_pdf + prob_null * noncausal_pdf))
 
+def _optim_ss(f_args):
+    beta_t, se_t, starting_params, solver_opts = f_args
+    start_pi, start_tau = starting_params
+    x_0 = ( 1.0/(1.0 + np.exp(-start_pi)), -np.log(start_tau) )
+    # beta_t, se_t = f_args
+    optim_results = scipy.optimize.minimize(neglogL_single_SS, x_0, args=(beta_t, se_t,True), method='Nelder-Mead', options=solver_opts, callback=None)
+
+    t_pi, t_tau = optim_results.x
+    pi_null =  1.0 / (1.0 + np.exp(-1 * t_pi))
+    tau = np.exp(-t_tau)
+    return pi_null, tau
 
 
 def ss_estimation(args, betas, se, max_iter=1000, tol=1.0e-10,
-                  starting_params =(0.1, 1.0e-3),
+                  starting_params =(0.5, 1.0e-3),
                   callback=False):
     '''
     Numerically fit the distribution of betas and standard errors to a spike slab distribution.
@@ -1020,28 +1028,14 @@ def ss_estimation(args, betas, se, max_iter=1000, tol=1.0e-10,
     '''
     M,T = betas.shape
 
-    def cback_print(x):
-        logging.info(x)
 
-
-    def _optim_ss(f_args):
-        start_pi, start_tau = starting_params
-        x_0 = ( 1.0/(1.0 + np.exp(-start_pi)), -np.log(start_tau) )
-        beta_t, se_t = f_args
-        solver_opts = dict()
-        solver_opts['maxiter'] = max_iter
-        solver_opts['fatol'] = tol
-        solver_opts['xatol'] = tol
-        solver_opts['disp'] = True
-        optim_results = scipy.optimize.minimize(neglogL_single_SS, x_0, args=(betas, se,True), method='Nelder-Mead', options=solver_opts, callback=None)
-
-        t_pi, t_tau = optim_results.x
-        pi_null =  1.0 / (1.0 + np.exp(-1 * t_pi))
-        tau = np.exp(-t_tau)
-        return pi_null, tau
-
+    solver_opts = dict()
+    solver_opts['maxiter'] = max_iter
+    solver_opts['fatol'] = tol
+    solver_opts['xatol'] = tol
+    solver_opts['disp'] = True
     callback = cback_print if callback else None
-    arg_list_ss = [(betas[:,t], se[:,t]) for t in range(T)]
+    arg_list_ss = [(betas[:,t], se[:,t], starting_params, solver_opts) for t in range(T)]
     ss_results =  joblib.Parallel(n_jobs = args.cores,
                                           backend='multiprocessing',
                                           verbose=0,
@@ -1049,8 +1043,6 @@ def ss_estimation(args, betas, se, max_iter=1000, tol=1.0e-10,
     return ss_results
 
 
-def causal_prob(probs, S):
-    n_S,T = S.shape
 
 def some_causal_for_allT(probs, S):
     # probability of being causal is nonzero for all traits
@@ -1088,7 +1080,6 @@ def fdr(args, Ns_f, Zs):
 
     Ns = np.round(Ns_f) # round to avoid decimals
     Ns_unique, Ns_counts = np.unique(Ns, return_counts=True, axis=0)
-
     M_eff, T = Ns_unique.shape
 
     logging.info('T='+str(T))
@@ -1117,10 +1108,10 @@ def fdr(args, Ns_f, Zs):
         for t in range(T):
             logging.info('Trait {}: \t {:.3f}'.format(t, pi_causal_ss[t]))
 
-        # P0 = len(prob_grid)
-        prob_grid = [p for p in prob_grid if np.all(np.abs(causal_prob(p)-pi_causal_ss) < (1. / args.intervals) ) ]
+
+        prob_grid = [p for p in prob_grid if np.all(np.abs(causal_prob(p,S)-pi_causal_ss) < (1. / args.intervals) ) ]
         logging.info('{} probabilities remain after restricting to the grid points with causal probabilities within one unit for each trait'.format(len(prob_grid)))
-        # P0 = len(prob_grid)
+
 
 
     logging.info('Number of gridpoints to search: {}'.format(len(prob_grid)))
@@ -1204,9 +1195,9 @@ def mtag(args):
 
     if args.ld_ref_panel is None:
         # mtag_path =-os.path.dirname(os.path.abspath(__file__))
-        
+
         mtag_path = os.path.dirname(os.path.abspath(__file__)) +"/"
-        
+
         args.ld_ref_panel = mtag_path+'ld_ref_panel/eur_w_ld_chr/'
 
     start_time = time.time()  # starting time of analysis
