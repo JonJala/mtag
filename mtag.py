@@ -138,7 +138,6 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
     a1_munge = None if args.a1_name == "a1" else args.a1_name
     a2_munge = None if args.a2_name == "a2" else args.a2_name
     eaf_munge = None if args.eaf_name == "freq" else args.eaf_name
-
     # sumstats is set to null because generator passed manually
     argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=a1_munge, a2=a2_munge, p=None,frq=eaf_munge,signed_sumstats=zz+',0', info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
 
@@ -582,18 +581,6 @@ def gmm_omega(Zs, Ns, sigma_LD):
     return np.mean((Z_outer - sigma_LD) / N_mats, axis=0)
 
 
-def analytic_omega(Zs,Ns,sigma_LD):
-    '''
-    Closed form solution for Omega when the sample size is constant across all snps for each phenotype. Can serve as an approximation in other cases.
-
-    '''
-    M,P = Zs.shape
-    N_mean = np.mean(Ns, axis=0)
-    N_mats = np.einsum('mp, mq -> mpq', np.sqrt(Ns), np.sqrt(Ns))
-
-    Cov_mean = np.mean(np.einsum('mp,mq->mpq',Zs,Zs) / N_mats, axis=0)
-    return Cov_mean - sigma_LD / np.sqrt(np.outer(N_mean,N_mean))
-
 def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
     M,P = Zs.shape
     solver_options = dict()
@@ -695,24 +682,9 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
         return omega_hat
 
 
-
-    #logL = lambda joint_probs: np.sum(np.log(joint_probs))
     if args.perfect_gencov:
-        # if args.equal_h2: # already covered above.
-        #     return np.ones((P,P))
-        if args.analytic_omega: # if both closed-form solution and solution with perfect covariance desired, then we compute closed form solution and return the outerproduct of the square root of the diagonal with itself.
-            logging.info('Using closed-form solution...')
-            omega_hat = analytic_omega(Zs,Ns, sigma_LD)
-            return np.sqrt(np.outer(np.diag(omega_hat),np.diag(omega_hat)))
-
-        else: # gmm_omega
-            omega_hat = _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
-            return np.sqrt(np.outer(np.diag(omega_hat), np.diag(omega_hat)))
-
-
-    elif args.analytic_omega: # analytic solution only.
-
-        return _posDef_adjustment(analytic_omega(Zs,Ns,sigma_LD))
+        omega_hat = _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
+        return np.sqrt(np.outer(np.diag(omega_hat), np.diag(omega_hat)))
 
     # else: gmm_omega (default)
     return _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
@@ -1328,7 +1300,7 @@ filter_opts.add_argument("--drop_ambig_snps", default=False, action="store_true"
 filter_opts.add_argument("--no_allele_flipping", default=False, action="store_true", help="Prevents flipping the effect sizes of summary statistics when the effect and non-effect alleles are reversed (reletive the first summary statistics file.")
 
 special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implicit in each option are violated.")
-special_cases.add_argument('--analytic_omega', default=False, action='store_true', help='Option to turn off the numerical estimation of the genetic VCV matrix in the presence of constant sample size within each GWAS, for which a closed-form solution exists. The default is to typically use the closed form solution as the starting point for the numerical solution to the maximum-likelihood genetic VCV, Use with caution! If any input GWAS does not have constant sample size, then the analytic solution employed here will not be a maximizer of the likelihood function.')
+
 special_cases.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary statistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
 special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all traits used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
 special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all traits passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conjunction with --perfect_gencov')
