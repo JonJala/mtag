@@ -1,6 +1,6 @@
 # `mtag` (Multi-Trait Analysis of GWAS)
 
-`mtag` is a Python-based command line tool for jointly analyzing multiple sets of GWAS summary statistics as described by [Turley et. al. (2017)](http://www.biorxiv.org/content/early/2017/07/03/118810). It can also be used as a tool to meta-analyze GWAS results.
+`mtag` is a Python-based command line tool for jointly analyzing multiple sets of GWAS summary statistics as described by [Turley et. al. (2018)](https://www.nature.com/articles/s41588-017-0009-4). It can also be used as a tool to meta-analyze GWAS results.
 
 ## Getting Started
 
@@ -51,7 +51,7 @@ If that doesn't prove to be enlightening, then feel free to post a question on o
 
 If you use the `mtag` software or methodology, please cite:
 
-Turley, et. al. MTAG: Multi-Trait Analysis of GWAS. bioRxiv doi: <https://doi.org/10.1101/118810>.
+Turley, et. al. (2018) Multi-Trait analysis of genome-wide association summary statistics using MTAG. Nature Genetics  doi: <https://doi.org/10.1038/s41588-017-0009-4>.
 
 ### License
 
