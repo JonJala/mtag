@@ -15,6 +15,7 @@ To run `mtag`, you will need to have Python 2.7 installed with the following pac
 * `bitarray` (for `ldsc`)
 * `joblib`
 
+(Note: if you already have the Python 3 version of the Anaconda distribution installed, then you will need to create and activate a Python 2.7 environment to run `mtag`. See [here](https://conda.io/docs/user-guide/tasks/manage-environments.html#creating-an-environment-with-commands) for details.)
 
 
 `mtag` may be downloaded by cloning this github repository:
