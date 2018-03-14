@@ -122,15 +122,22 @@ class Logger_to_Logging(object):
         logging.info('created Logger instance to pass through ldsc.')
         super(Logger_to_Logging, self).__init__()
 
+
     def log(self,x):
         logging.info(x)
 
 def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
 
-    original_cols = GWAS_df.columns
     merge_alleles = None
-    out=None
-    zz= args.z_name if args.z_name is not None else 'z'
+    out = None
+    if args.beta_name is not None:
+        GWAS_df['z'] = GWAS_df[args.beta_name] / GWAS_df[args.se_name]
+        for sub_df in GWAS_dat_gen:
+            sub_df['z'] = sub_df[args.beta_name] / sub_df[args.se_name]
+        args.z_name = 'z'
+
+    original_cols = GWAS_df.columns
+    zz = args.z_name if args.z_name is not None else 'z'
     ignore_list = ""
     if args.info_min is None:
         ignore_list += "info"
@@ -168,16 +175,16 @@ def _quick_mode(ndarray,axis=0):
         axis = [i for i in range(ndarray.ndim)][axis]
     except IndexError:
         raise Exception('Axis %i out of range for array with %i dimension(s)' % (axis,ndarray.ndim))
-    srt = np.sort(ndarray,axis=axis)
-    dif = np.diff(srt,axis=axis)
+    srt = np.sort(ndarray, axis=axis)
+    dif = np.diff(srt, axis=axis)
     shape = [i for i in dif.shape]
     shape[axis] += 2
     indices = np.indices(shape)[axis]
     index = tuple([slice(None) if i != axis else slice(1,-1) for i in range(dif.ndim)])
     indices[index][dif == 0] = 0
     indices.sort(axis=axis)
-    bins = np.diff(indices,axis=axis)
-    location = np.argmax(bins,axis=axis)
+    bins = np.diff(indices, axis=axis)
+    location = np.argmax(bins, axis=axis)
     mesh = np.indices(bins.shape)
     index = tuple([slice(None) if i != axis else 0 for i in range(dif.ndim)])
     index = [mesh[i][index].ravel() if i != axis else location.ravel() for i in range(bins.ndim)]
@@ -1276,6 +1283,8 @@ out_opts.add_argument("--make_full_path", default=False, action="store_true", he
 input_formatting = parser.add_argument_group(title="Column names of input files", description="These options manually pass the names of the relevant summary statistics columns used by MTAG. It is recommended to pass these names because only narrow searches for these columns are performed in the default cases. Moreover, it is necessary that these input files be readable by ldsc's munge_sumstats command.")
 input_formatting.add_argument("--snp_name", default="snpid", action="store",type=str, help="Name of the single column that provides the unique identifier for SNPs in the GWAS summary statistics across all GWAS results. Default is \"snpid\". This the index that will be used to merge the GWAS summary statistics. Any SNP lists passed to ---include or --exclude should also contain the same name.")
 input_formatting.add_argument("--z_name", default="z", help="The common name of the column of Z scores across all input files. Default is the lowercase letter z.")
+input_formatting.add_argument("--beta_name", default="beta", help="The common name of the column of beta coefficients (effect sizes) across all input files. Must be specified with se. If specified, it will override the z-score column.")
+input_formatting.add_argument("--se_name", default=None, help="The common name of the column of standard errors of the betas across all input files. Default is the lowercase letter z. Must be specified with --beta_name.")
 input_formatting.add_argument("--n_name", default="n", help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is the lowercase letter  n.")
 input_formatting.add_argument('--eaf_name',default="freq", help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is \"freq\".")
 input_formatting.add_argument('--chr_name',default='chr', type=str, help="Name of the column containing the chromosome of each SNP in the GWAS input. Default is \"chr\".")
