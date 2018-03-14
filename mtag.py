@@ -243,7 +243,7 @@ def load_and_merge_data(args):
         GWAS_d[p] =GWAS_d[p].rename(columns={x+str(p):x for x in GWAS_d[p].columns})
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
 
-        # Drop SNPs that are missing or duplicated
+        # Drop SNPs that are missing 
         missing_snps = GWAS_d[p][args.snp_name].isin(['NA','.'])
         M0 = len(GWAS_d[p])
         GWAS_d[p] = GWAS_d[p][np.logical_not(missing_snps)]
@@ -265,33 +265,37 @@ def load_and_merge_data(args):
             GWAS_all = GWAS_d[p]
 
         else:
-            GWAS_all = GWAS_all.merge(GWAS_d[p], how = 'inner', on=args.snp_name)
+            merge_type = 'outer' if args.meta_format else 'inner'
+            GWAS_all = GWAS_all.merge(GWAS_d[p], how = merge_type, on=args.snp_name)
 
             M_0 = len(GWAS_all)
-            logging.info('Trait {} summary statistics: \t {} SNPs remaining merging with previous traits.'.format(p+1, M_0))
-            if True:
-                snps_to_flip = np.logical_and(GWAS_all[args.a1_name+str(0)] == GWAS_all[args.a2_name+str(p)], GWAS_all[args.a2_name+str(0)] == GWAS_all[args.a1_name+str(p)])
-                GWAS_all['flip_snps'+str(p)]= snps_to_flip
+            logging.info('Trait {} summary statistics: \t {} SNPs after merging with previous traits.'.format(p+1, M_0))
 
-                logging.debug('Columns after merging :{}'.format(GWAS_all.columns))
-                logging.debug(GWAS_all.head(15))
-                snps_to_keep = np.logical_or(np.logical_and(GWAS_all[args.a1_name+str(0)]==GWAS_all[args.a1_name+str(p)], GWAS_all[args.a2_name+str(0)]==GWAS_all[args.a2_name+str(p)]), snps_to_flip)
+            # IF True:
+            # XXX fill in the trait 0 values with those merged if they are missing and (vice versa: those merged in with trait 0).
 
-                GWAS_all = GWAS_all[snps_to_keep]
-                if len(GWAS_all) < M_0:
-                    logging.info('Dropped {} SNPs due to inconsistent allele pairs from phenotype {}. {} SNPs remain.'.format(M_0 - len(GWAS_all),p+1, len(GWAS_all)))
+            snps_to_flip = np.logical_and(GWAS_all[args.a1_name+str(0)] == GWAS_all[args.a2_name+str(p)], GWAS_all[args.a2_name+str(0)] == GWAS_all[args.a1_name+str(p)])
+            GWAS_all['flip_snps'+str(p)]= snps_to_flip
 
-                if np.sum(snps_to_flip) > 0:
-                    zz= args.z_name if args.z_name is not None else 'z'
-                    freq_name = args.eaf_name if args.eaf_name is not None else 'freq'
+            logging.debug('Columns after merging :{}'.format(GWAS_all.columns))
+            logging.debug(GWAS_all.head(15))
+            snps_to_keep = np.logical_or(np.logical_and(GWAS_all[args.a1_name+str(0)]==GWAS_all[args.a1_name+str(p)], GWAS_all[args.a2_name+str(0)]==GWAS_all[args.a2_name+str(p)]), snps_to_flip)
 
-                    GWAS_all.loc[snps_to_flip, zz+str(p)] = -1*GWAS_all.loc[snps_to_flip, zz+str(p)]
-                    GWAS_all.loc[snps_to_flip, freq_name + str(p)] = 1. - GWAS_all.loc[snps_to_flip, freq_name + str(p)]
-                    store_allele = GWAS_all.loc[snps_to_flip, args.a1_name+str(p)]
-                    GWAS_all.loc[snps_to_flip, args.a1_name+str(p)] = GWAS_all.loc[snps_to_flip, args.a2_name+str(p)]
-                    GWAS_all.loc[snps_to_flip, args.a2_name+str(p)] = store_allele
-                    logging.info('Flipped the signs of of {} SNPs to make them consistent with the effect allele orderings of the first trait.'.format(np.sum(snps_to_flip)))
-        # tag strand ambiguous SNPs
+            GWAS_all = GWAS_all[snps_to_keep]
+            if len(GWAS_all) < M_0:
+                logging.info('Dropped {} SNPs due to inconsistent allele pairs from phenotype {}. {} SNPs remain.'.format(M_0 - len(GWAS_all),p+1, len(GWAS_all)))
+
+            if np.sum(snps_to_flip) > 0:
+                zz= args.z_name if args.z_name is not None else 'z'
+                freq_name = args.eaf_name if args.eaf_name is not None else 'freq'
+
+                GWAS_all.loc[snps_to_flip, zz+str(p)] = -1*GWAS_all.loc[snps_to_flip, zz+str(p)]
+                GWAS_all.loc[snps_to_flip, freq_name + str(p)] = 1. - GWAS_all.loc[snps_to_flip, freq_name + str(p)]
+                store_allele = GWAS_all.loc[snps_to_flip, args.a1_name+str(p)]
+                GWAS_all.loc[snps_to_flip, args.a1_name+str(p)] = GWAS_all.loc[snps_to_flip, args.a2_name+str(p)]
+                GWAS_all.loc[snps_to_flip, args.a2_name+str(p)] = store_allele
+                logging.info('Flipped the signs of of {} SNPs to make them consistent with the effect allele orderings of the first trait.'.format(np.sum(snps_to_flip)))
+    # tag strand ambiguous SNPs
         # logging.info(GWAS_all.head(15))
         STRAND_AMBIGUOUS_SET = [x for x in allele_info.STRAND_AMBIGUOUS.keys() if allele_info.STRAND_AMBIGUOUS[x]]
 
@@ -737,9 +741,9 @@ def mtag_analysis(Zs, Ns, omega_hat, sigma_LD):
     return mtag_betas, mtag_se
 
 
-#################
+####################
 ## SAVING RESULTS ##
-#########################
+####################
 
 def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     '''
@@ -827,16 +831,6 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
 Functions for maxFDR parallelization
 '''
 create_S = lambda P: np.asarray(list(itertools.product([False,True], repeat=P)))
-
-# def _FDR_par(func_args):
-#     '''
-#     FDR methods for parallelization
-#     '''
-#     probs, t,omega_hat, sigma_hat,S,Ns, coords = func_args
-#     if coords[0] % 1000 == 0:
-#         logging.info('Calculating for {}: {}'.format(coords, probs))
-#     return -1.*compute_fdr(probs, t, omega_hat, sigma_hat, S, Ns)  , coords
-
 
 
 def MTAG_var_Z_jt_c(t, Omega, Omega_c, sigma_LD, Ns):
@@ -1091,8 +1085,6 @@ def fdr(args, Ns_f, Zs):
         prob_grid = [p for p in prob_grid if np.all(np.abs(causal_prob(p,S)-pi_causal_ss) < (1. / args.intervals) ) ]
         logging.info('{} probabilities remain after restricting to the grid points with causal probabilities within one unit for each trait'.format(len(prob_grid)))
 
-
-
     logging.info('Number of gridpoints to search: {}'.format(len(prob_grid)))
 
     FDR = -1.23 * np.ones((len(prob_grid), T))
@@ -1279,6 +1271,8 @@ out_opts = parser.add_argument_group(title="Output formatting", description="Set
 
 out_opts.add_argument("--out", metavar='DIR/PREFIX', default='./mtag_results', type=str, help='Specify the directory and name prefix to output MTAG results. All mtag results will be prefixed with the corresponding tag. Default is ./mtag_results')
 out_opts.add_argument("--make_full_path", default=False, action="store_true", help="option to make output path specified in -out if it does not exist.")
+out_opts.add_argument("--meta_format", default=False, action="store_true",
+    help="Highly suggested to only use this with the --perfect_gencov option. In addition to the typical results file that are restricted to the intersection of SNPs across files, this creates a file of the union of SNPs, with applications of the MTAG estimator restricted to the set of traits for which that SNP is available.")
 
 input_formatting = parser.add_argument_group(title="Column names of input files", description="These options manually pass the names of the relevant summary statistics columns used by MTAG. It is recommended to pass these names because only narrow searches for these columns are performed in the default cases. Moreover, it is necessary that these input files be readable by ldsc's munge_sumstats command.")
 input_formatting.add_argument("--snp_name", default="snpid", action="store",type=str, help="Name of the single column that provides the unique identifier for SNPs in the GWAS summary statistics across all GWAS results. Default is \"snpid\". This the index that will be used to merge the GWAS summary statistics. Any SNP lists passed to ---include or --exclude should also contain the same name.")
