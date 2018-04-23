@@ -243,7 +243,7 @@ def load_and_merge_data(args):
         GWAS_d[p] =GWAS_d[p].rename(columns={x+str(p):x for x in GWAS_d[p].columns})
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
 
-        # Drop SNPs that are missing 
+        # Drop SNPs that are missing
         missing_snps = GWAS_d[p][args.snp_name].isin(['NA','.'])
         M0 = len(GWAS_d[p])
         GWAS_d[p] = GWAS_d[p][np.logical_not(missing_snps)]
@@ -330,7 +330,7 @@ def load_and_merge_data(args):
 
 
     ## Parse chromosomes
-    if args.only_chr is not None:
+    if args.only_chr is not None and not args.no_chr_data:
         chr_toInclude = args.only_chr.split(',')
         chr_toInclude = [int(c) for c in chr_toInclude]
         GWAS_all = GWAS_all[GWAS_all[args.chr_name+str(0)].isin(chr_toInclude)]
@@ -534,8 +534,12 @@ def extract_gwas_sumstats(DATA, args):
     # results_template = pd.DataFrame(index=np.arange(len(DATA)))
     # results_template.loc[:,args.snp_name] = DATA[args.snp_name]
     # args.chr args.bpos args.alelle_names
-    for col in [args.chr_name, args.bpos_name, args.a1_name, args.a2_name]:
-        results_template.loc[:,col] = DATA[col+str(0)]
+    if args.no_chr_data:
+        for col in [args.a1_name, args.a2_name]:
+           results_template.loc[:,col] = DATA[col+str(0)]
+    else:
+        for col in [args.chr_name, args.bpos_name, args.a1_name, args.a2_name]:
+            results_template.loc[:,col] = DATA[col+str(0)]
     # TODO: non-error form of integer conversion
     # results_template[args.chr_name] = results_template[args.chr_name].astype(int)
     # results_template[args.bpos_name] = results_template[args.bpos_name].astype(int)
@@ -1281,6 +1285,7 @@ input_formatting.add_argument("--beta_name", default="beta", help="The common na
 input_formatting.add_argument("--se_name", default=None, help="The common name of the column of standard errors of the betas across all input files. Default is the lowercase letter z. Must be specified with --beta_name.")
 input_formatting.add_argument("--n_name", default="n", help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is the lowercase letter  n.")
 input_formatting.add_argument('--eaf_name',default="freq", help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is \"freq\".")
+input_formatting.add_argument('--no_chr_data',default=False,action='store_true', help="If used, will not use information related to the chromosome and base pair position columns. Use only it chromosome/base pair positional data is missing, but are certain that the snpids correctly identify the SNPs across traits.")
 input_formatting.add_argument('--chr_name',default='chr', type=str, help="Name of the column containing the chromosome of each SNP in the GWAS input. Default is \"chr\".")
 input_formatting.add_argument('--bpos_name',default='bpos', type=str, help="Name of the column containing the base pair of each SNP in the GWAS input. Default is \"bpos\".")
 input_formatting.add_argument('--a1_name',default='a1', type=str, help="Name of the column containing the effect allele of each SNP in the GWAS input. Default is \"a1\".")
