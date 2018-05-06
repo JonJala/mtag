@@ -1067,7 +1067,7 @@ def fdr(args, Ns_f, Zs):
     if args.grid_file is not None:
         prob_grid = np.loadtxt(args.grid_file)
         # exclude rows that don't sum to 1
-        prob_grid = prob_grid[(np.sum(prob_grid, axis=1) > 1.) & np.sum(prob_grid, axis=1) < 0]
+        prob_grid = prob_grid[(np.sum(prob_grid, axis=1) > 1.) & (np.sum(prob_grid, axis=1) < 0)]
     else:
         # automate the creation of the probability grid
         # one_dim_interval = np.linspace(0., 1., args.intervals +1)
