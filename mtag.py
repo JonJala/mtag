@@ -899,7 +899,7 @@ def scale_omega(gen_corr_mat, priors, S=None):
 
 def compute_fdr(prob, t, omega, sigma, S, Ns,N_counts, p_threshold):
 
-    z_threshold = scipy.stats.norm.isf(p_threshold / 2.) # magnitude of z-score needed for statistical significance
+    z_threshold = scipy.stats.norm.isf(float(p_threshold) / 2.) # magnitude of z-score needed for statistical significance
     n_S, T = S.shape
 
     omega_TT = scale_omega(omega, prob, S)
