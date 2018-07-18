@@ -235,6 +235,13 @@ def load_and_merge_data(args):
 
         # perform munge sumstats
         GWAS_d[p], sumstats_format[p] = _perform_munge(args, GWAS_d[p], gwas_dat_gen, p)
+
+        # checker of chi2 --> error if sumstats has very low chi2
+        if np.mean(np.square(GWAS_d[p][args.z_name])) < 1.02:
+            raise ValueError("The mean chi2 statistic of trait {} is less than 1.02, which is too small to be well-suited for MTAG.".format(p+1))
+        else:
+            pass
+
         GWAS_d[p] = GWAS_d[p].add_suffix(p)
 
         # convert Alleles to uppercase
@@ -455,7 +462,7 @@ def extract_gwas_sumstats(DATA, args):
     -------
     All matrices are of the shape MxP, where M is the number of SNPs used in MTAG and P is the number of summary statistics results used. Columns are ordered according to the initial ordering of GWAS input files.
     results_template = pd.Dataframe of snp_name chr bpos a1 a2
-    Zs: matriix of Z scores
+    Zs: matrix of Z scores
     Ns: matrix of sample sizes
     Fs: matrix of allele frequencies
     '''
@@ -878,12 +885,17 @@ def simplex_walk(num_dims, samples_per_dim):
     """
     A generator that returns lattice points on an n-simplex.
     """
+    try:
+        from itertools import izip
+    except:
+        izip = zip
+
     max_ = samples_per_dim + num_dims - 1
     for c in itertools.combinations(range(max_), num_dims):
         #print(c)
         c = list(c)
         yield np.array([(y - x - 1.) / (samples_per_dim - 1.)
-               for x, y in itertools.izip([-1] + c, c + [max_])])
+               for x, y in izip([-1] + c, c + [max_])])
 
 
 
@@ -1047,19 +1059,16 @@ def _FDR_par(func_args):
 
 def fdr(args, Ns_f, Zs):
     '''
-     Ns: Mx T matrix of sample sizes
+    Ns: Mx T matrix of sample sizes
     '''
-    # M,T = Ns.shape
+    logging.info('Beginning maxFDR calculations. Depending on the number of grid points specified, this might take some time...')
 
-    # only use unique values
     if not args.grid_file:
         if args.intervals <= 0:
             raise ValueError('spacing of grid points for the max FDR calculation must be a positive integer')
 
     Ns = np.round(Ns_f) # round to avoid decimals
-    Ns_unique, Ns_counts = np.unique(Ns, return_counts=True, axis=0)
-    M_eff, T = Ns_unique.shape
-
+    M,T = Ns.shape
     logging.info('T='+str(T))
     S = create_S(T)
     causal_prob = lambda x, SS: np.sum(np.einsum('s,st->st',x,SS),axis=0)
@@ -1088,7 +1097,7 @@ def fdr(args, Ns_f, Zs):
 
 
         prob_grid = [p for p in prob_grid if np.all(np.abs(causal_prob(p,S)-pi_causal_ss) < (1. / args.intervals) ) ]
-        logging.info('{} probabilities remain after restricting to the grid points with causal probabilities within one unit for each trait'.format(len(prob_grid)))
+        logging.info('{} probabilities remain after restricting to the grid points with causal probabilities less than one unit (i.e. 1/intervals) from the Spike-Slab fitted causal probabilities.'.format(len(prob_grid)))
 
     logging.info('Number of gridpoints to search: {}'.format(len(prob_grid)))
 
@@ -1097,9 +1106,14 @@ def fdr(args, Ns_f, Zs):
     # performing coarse grid search
     logging.info('Performing grid search using {} cores.'.format(args.cores))
 
-
-    N_vals = np.mean(Ns, axis=0, keepdims=True) if args.n_approx else Ns_unique
-    N_weights = np.ones(1) if args.n_approx else Ns_counts
+    if args.n_approx:
+        N_vals = np.mean(Ns, axis=0, keepdims=True)
+        N_weights = np.ones(1)
+    else:
+        Ns_unique, Ns_counts = np.unique(Ns, return_counts=True, axis=0)
+        N_vals = Ns_unique
+        N_weights = Ns_counts
+        assert np.sum(N_weights) == len(Ns)
 
     # # define parallelization function
     # def _FDR_par(func_args):
@@ -1110,11 +1124,7 @@ def fdr(args, Ns_f, Zs):
     #     probs, g, t = func_args
     #     return compute_fdr(probs, t, args.omega_hat, args.sigma_hat, S, Ns, args.p_sig)  , (g,t)
 
-
-    if not args.n_approx:
-        assert np.sum(N_weights) == len(Ns)
-
-    arg_list = [(probs, args.omega_hat, args.sigm_hat, S, N_vals,N_weights, args.p_sig, g, t) for t in range(T) for g, probs in enumerate(prob_grid)]
+    arg_list = [(probs, args.omega_hat, args.sigma_hat, S, N_vals,N_weights, args.p_sig, g, t) for t in range(T) for g, probs in enumerate(prob_grid)]
     NN = len(arg_list)
     K = 10
     start_fdr =time.time()
@@ -1142,9 +1152,15 @@ def fdr(args, Ns_f, Zs):
     ind_max = np.argmax(FDR, axis=0)
     logging.info('grid point indices for max FDR for each trait: {}'.format(ind_max))
     max_FDR = np.max(FDR, axis=0)
-    logging.info('Maximum FDR')
-    for t in range(T):
-        logging.info('Max FDR of Trait {}: {} at probs = {}'.format(t+1, max_FDR[t], prob_grid[ind_max[t]]))
+
+    if args.fit_ss:
+        logging.info('FDR with the Spike-Slab parameters')
+        for t in range(T):
+            logging.info('FDR of Trait {}: {} at probs = {}'.format(t+1, max_FDR[t], prob_grid[ind_max[t]]))
+    else:
+        logging.info('Maximum FDR')
+        for t in range(T):
+            logging.info('Max FDR of Trait {}: {} at probs = {}'.format(t+1, max_FDR[t], prob_grid[ind_max[t]]))
 
     logging.info(borderline)
     logging.info('Completed FDR calculations.')
@@ -1216,8 +1232,8 @@ def mtag(args):
 
     else:
         args.sigma_hat = _read_matrix(args.residcov_path)
-    args.sigm_hat = _posDef_adjustment(args.sigma_hat)
-    logging.info('Sigma hat:\n{}'.format(args.sigm_hat))
+    args.sigma_hat = _posDef_adjustment(args.sigma_hat)
+    logging.info('Sigma hat:\n{}'.format(args.sigma_hat))
 
 
     G_mean_c2_adj = np.mean(np.square(Zs),axis=0) / np.diag(args.sigma_hat)
@@ -1251,11 +1267,7 @@ def mtag(args):
 
 
     if args.fdr:
-
-        logging.info('Beginning maxFDR calculations. Depending on the number of grid points specified, this might take some time...')
-
         fdr(args, Ns, Zs)
-        ### ZZZ use function fdr(args, Ns)
 
 
     logging.info('MTAG complete. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
@@ -1319,11 +1331,9 @@ special_cases.add_argument('--equal_h2', default=False, action='store_true', hel
 fdr_opts = parser.add_argument_group(title='Max FDR calculation', description="These options are used for the calculation of an upper bound on the false disovery under the model described in Supplementary Note 1.1.4 of Turley et al. (2017). Note that there is one of three ways to define the space of grid points over which the upper bound is searched. ")
 
 fdr_opts.add_argument('--fdr', default=False, action='store_true', help='Perform max FDR calculations')
-# fdr_opts.add_argument(title='--skip-mtag', default=False, action='store_true',) # XXX make option to skip mtag calculations if already done.
-# make mutually exclusive group
+fdr_opts.add_argument('--skip_mtag', default=False, action='store_true', help='Skip calculations of MTAG and perform FDR only.')
 fdr_opts.add_argument('--grid_file',default=None, action='store', help='Pre-set list of grid points. Users can define a list of grid points over which the search is conducted. The list of grid points should be passed in text file as a white-space delimited matrix of dimnesions, G x S, where G is the number of grid points and S = 2^T is the number of possible causal states for SNPs. States are ordered according to a tree-like recursive structure from right to left. For example, for 3 traits, with the triple TFT denoting the state for which SNPs are causal for State 1, not causal for state 2, and causal for state 3, then the column ordering of probabilities should be: \nFFF FFT FTF FTT TFF TFT TTF TTT\n There should be no headers, or row names in the file. Any rows for which (i) the probabilities do not sum to 1, the prior of a SNP being is causal is 0 for any of the traits, and (iii) the resulting genetic correlation matrix is non positive definite will excluded in the search.')
 # XXX rounding to 1e-6 & restandardize.
-
 fdr_opts.add_argument('--fit_ss', default=False, action='store_true', help='This estimates the prior probability that a SNP is null for each trait and then proceeds to restrict the grid search to the set of probability vectors that sum to the prior null for each trait. This is useful for restrict the search space of larger-dimensional traits.')
 
 fdr_opts.add_argument('--intervals', default=10, action='store',type=int, help='Number of intervals that you would like to partition the [0,1] interval. For example example, with two traits and --intervals set 10, then maxFDR will calculated over the set of feasible points in {0., 0.1, 0.2,..,0.9,1.0}^2.')
@@ -1331,7 +1341,7 @@ fdr_opts.add_argument('--intervals', default=10, action='store',type=int, help='
 fdr_opts.add_argument('--cores', default=1, action='store', type=int, help='Number of threads/cores use to compute the FDR grid points for each trait.')
 
 fdr_opts.add_argument('--p_sig', default=5.0e-8, type=float, action='store', help='P-value threshold used for statistical signifiance. Default is p=5.0e-8 (genome-wide significance).' )
-fdr_opts.add_argument('--n_approx', default=False, action='store_true', help='Speed up FDR calculation by replacing the sample size of a SNP for each trait by the mean across SNPs (for each trait). Recommended.')
+fdr_opts.add_argument('--n_approx', default=True, action='store_true', help='Speed up FDR calculation by replacing the sample size of a SNP for each trait by the mean across SNPs (for each trait). Recommended.')
 
 # fdr_opts.add_argument('--binned_n', default=False, action='store_true', help='When --n_approx is off, this options allows for a sped-up version of the max_FDR calculation by weighting the power calculations of unique rows.')
 
@@ -1355,10 +1365,38 @@ misc.add_argument('--stream_stdout', default=False, action='store_true', help='W
 if __name__ == '__main__':
     start_t = time.time()
     args = parser.parse_args()
-    try:
-        mtag(args)
-    except Exception as e:
-        logging.error(e,exc_info=True)
-        logging.info('Analysis terminated from error at {T}'.format(T=time.ctime()))
-        time_elapsed = round(time.time() - start_t, 2)
-        logging.info('Total time elapsed: {T}'.format(T=sec_to_str(time_elapsed)))
+
+    if args.skip_mtag:
+        # avoid overwriting the original mtag log file
+        logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.FDR.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d/%I:%M:%S %p')
+        if args.stream_stdout:
+            logging.getLogger().addHandler(logging.StreamHandler()) # prints to console
+
+        # parse output options
+        (out_dir, out_file) = os.path.split(args.out)
+        ofile_list = [x for x in os.listdir(out_dir) if out_file+'_trait' in x]
+        T = len(ofile_list)
+        df_d = dict()
+
+        # extract Ns and Zs
+        for t in range(T):
+            df_d[t] = pd.read_csv('{}_trait_{}.txt'.format(args.out, t+1), index_col=None, delim_whitespace=True)
+            if t == 0:
+                N_mat = np.empty((len(df_d[t]), T))
+                Z_mat = np.empty((len(df_d[t]), T))
+            N_mat[:,t] = df_d[t]['n']    
+            Z_mat[:,t] = df_d[t]['z']
+
+        # read in omega + sigma
+        args.sigma_hat = np.loadtxt('{}/{}_sigma_hat.txt'.format(out_dir, out_file))
+        args.omega_hat = np.loadtxt('{}/{}_omega_hat.txt'.format(out_dir, out_file))
+
+        fdr(args, N_mat, Z_mat)
+    else:             
+        try:
+            mtag(args)
+        except Exception as e:
+            logging.error(e,exc_info=True)
+            logging.info('Analysis terminated from error at {T}'.format(T=time.ctime()))
+            time_elapsed = round(time.time() - start_t, 2)
+            logging.info('Total time elapsed: {T}'.format(T=sec_to_str(time_elapsed)))

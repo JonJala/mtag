@@ -295,7 +295,7 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
 
         dat_list.append(dat[ii].reset_index(drop=True))
 
-    sys.stdout.write(' done\n')
+    #sys.stdout.write(' done\n')
     dat = pd.concat(dat_list, axis=0).reset_index(drop=True)
     msg = 'Read {N} SNPs from --sumstats file.\n'.format(N=tot_snps)
     if args.merge_alleles:
