@@ -7,12 +7,13 @@ regression is implemented in the regressions module.
 
 '''
 from __future__ import division
+from __future__ import absolute_import
 import numpy as np
 import pandas as pd
 from scipy import stats
 import itertools as it
-import parse as ps
-import regressions as reg
+from ldsc_mod.ldscore import parse as ps
+from ldsc_mod.ldscore import regressions as reg
 import sys
 import traceback
 import logging

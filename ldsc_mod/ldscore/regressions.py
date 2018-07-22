@@ -8,11 +8,12 @@ Last column = intercept.
 
 '''
 from __future__ import division
+from __future__ import absolute_import
 import numpy as np
 import pandas as pd
 from scipy.stats import norm, chi2
-import jackknife as jk
-from irwls import IRWLS
+from ldsc_mod.ldscore import jackknife as jk
+from ldsc_mod.ldscore.irwls import IRWLS
 from scipy.stats import t as tdist
 from collections import namedtuple
 np.seterr(divide='raise', invalid='raise')
