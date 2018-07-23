@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 from __future__ import division
+from __future__ import absolute_import
 import pandas as pd
 import numpy as np
 import os
@@ -10,8 +11,7 @@ import bz2
 import argparse
 from scipy.stats import chi2
 import logging
-# from ldscore import sumstats
-from ldscore import allele_info
+from ldsc_mod.ldscore import allele_info
 import time
 np.seterr(invalid='ignore')
 
@@ -295,7 +295,7 @@ def parse_dat(dat_gen, convert_colname, merge_alleles, args):
 
         dat_list.append(dat[ii].reset_index(drop=True))
 
-    sys.stdout.write(' done\n')
+    #sys.stdout.write(' done\n')
     dat = pd.concat(dat_list, axis=0).reset_index(drop=True)
     msg = 'Read {N} SNPs from --sumstats file.\n'.format(N=tot_snps)
     if args.merge_alleles:

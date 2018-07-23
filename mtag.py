@@ -3,6 +3,7 @@
 '''
 
 from __future__ import division
+from __future__ import absolute_import
 import numpy as np
 import pandas as pd
 import scipy.optimize
@@ -194,13 +195,14 @@ def _quick_mode(ndarray,axis=0):
     modals = srt[tuple(index)].reshape(location.shape)
     return (modals, counts)
 
-
 def load_and_merge_data(args):
     '''
-    TODO Add description
     Parses file names from MTAG command line arguments and returns the relevant used for method.
     '''
 
+    #=====================
+    # Parse inputs + filters
+    #=====================
     GWAS_input_files = args.sumstats.split(',')
     P = len(GWAS_input_files)  # of phenotypes/traits
     if args.n_min is not None:
@@ -224,7 +226,9 @@ def load_and_merge_data(args):
     else:
         args.info_min_list = [None]*P
 
-
+    #=====================
+    # Reading sumstats
+    #=====================
 
     GWAS_d = dict()
     sumstats_format = dict()
@@ -235,13 +239,18 @@ def load_and_merge_data(args):
 
         # perform munge sumstats
         GWAS_d[p], sumstats_format[p] = _perform_munge(args, GWAS_d[p], gwas_dat_gen, p)
-        GWAS_d[p] = GWAS_d[p].add_suffix(p)
+
+        # checker of chi2 --> error if sumstats has very low chi2
+        if np.mean(np.square(GWAS_d[p][args.z_name])) < 1.02:
+            raise ValueError("The mean chi2 statistic of trait {} is less than 1.02, which is too small to be well-suited for MTAG.".format(p+1))
+        else:
+            GWAS_d[p] = GWAS_d[p].add_suffix(p)
 
         # convert Alleles to uppercase
         for col in [col+str(p) for col in [args.a1_name, args.a2_name]]:
             GWAS_d[p][col] = GWAS_d[p][col].str.upper()
 
-        GWAS_d[p] =GWAS_d[p].rename(columns={x+str(p):x for x in GWAS_d[p].columns})
+        GWAS_d[p] = GWAS_d[p].rename(columns={x+str(p):x for x in GWAS_d[p].columns})
         GWAS_d[p] = GWAS_d[p].rename(columns={args.snp_name+str(p):args.snp_name})
 
         # Drop SNPs that are missing
@@ -251,64 +260,65 @@ def load_and_merge_data(args):
         if M0-len(GWAS_d[p]) > 0:
             logging.info('Trait {}: Dropped {} SNPs for missing values in the "snp_name" column'.format(p+1, M0-len(GWAS_d[p])))
 
-        # drop snps that are duplicated
-
+        # Drop snps that are duplicated
         M0 = len(GWAS_d[p])
         GWAS_d[p] = GWAS_d[p].drop_duplicates(subset=args.snp_name, keep='first')
         if M0-len(GWAS_d[p]) > 0:
             logging.info('Trait {}: Dropped {} SNPs for duplicate values in the "snp_name" column'.format(p+1, M0-len(GWAS_d[p])))
 
-    ## Merge summary statistics of GWA studies by snp index
-
+    #=====================
+    # merge sumstats
+    # intersection/union
+    #=====================
     for p in range(P):
-
         if p == 0:
             GWAS_all = GWAS_d[p]
-
+            GWAS_int = GWAS_all.copy()
+            if args.meta_format:
+                GWAS_all['Trait0'] = 1
         else:
-            merge_type = 'outer' if args.meta_format else 'inner'
-            GWAS_all = GWAS_all.merge(GWAS_d[p], how = merge_type, on=args.snp_name)
+            if args.meta_format:
+                # add trait tags for all SNPs if meta
+                GWAS_all = GWAS_all.merge(GWAS_d[p], how='outer', on=args.snp_name, indicator=True)
+                GWAS_all.loc[np.logical_or(GWAS_all._merge=='both',GWAS_all._merge=='right_only'),'Trait{}'.format(p)] = 1
+                GWAS_all.loc[GWAS_all._merge=='left_only','Trait{}'.format(p)] = 0
+                GWAS_all.loc[GWAS_all._merge=='right_only', 'Trait{}'.format(p-1)] = 0
+                GWAS_all.drop(['_merge'], axis=1, inplace=True)
 
-            M_0 = len(GWAS_all)
-            logging.info('Trait {} summary statistics: \t {} SNPs after merging with previous traits.'.format(p+1, M_0))
+            # intersection only
+            GWAS_int = GWAS_int.merge(GWAS_d[p], how='inner', on=args.snp_name)
+            M_0 = len(GWAS_int)
+            snps_to_flip = np.logical_and(GWAS_int[args.a1_name+str(0)] == GWAS_int[args.a2_name+str(p)], GWAS_int[args.a2_name+str(0)] == GWAS_int[args.a1_name+str(p)])
+            GWAS_int['flip_snps'+str(p)]= snps_to_flip
 
-            # IF True:
-            # XXX fill in the trait 0 values with those merged if they are missing and (vice versa: those merged in with trait 0).
+            snps_to_keep = np.logical_or(np.logical_and(GWAS_int[args.a1_name+str(0)]==GWAS_int[args.a1_name+str(p)], GWAS_int[args.a2_name+str(0)]==GWAS_int[args.a2_name+str(p)]), snps_to_flip)
 
-            snps_to_flip = np.logical_and(GWAS_all[args.a1_name+str(0)] == GWAS_all[args.a2_name+str(p)], GWAS_all[args.a2_name+str(0)] == GWAS_all[args.a1_name+str(p)])
-            GWAS_all['flip_snps'+str(p)]= snps_to_flip
-
-            logging.debug('Columns after merging :{}'.format(GWAS_all.columns))
-            logging.debug(GWAS_all.head(15))
-            snps_to_keep = np.logical_or(np.logical_and(GWAS_all[args.a1_name+str(0)]==GWAS_all[args.a1_name+str(p)], GWAS_all[args.a2_name+str(0)]==GWAS_all[args.a2_name+str(p)]), snps_to_flip)
-
-            GWAS_all = GWAS_all[snps_to_keep]
-            if len(GWAS_all) < M_0:
-                logging.info('Dropped {} SNPs due to inconsistent allele pairs from phenotype {}. {} SNPs remain.'.format(M_0 - len(GWAS_all),p+1, len(GWAS_all)))
+            GWAS_int = GWAS_int[snps_to_keep]
+            if len(GWAS_int) < M_0:
+                logging.info('Dropped {} SNPs due to inconsistent allele pairs from phenotype {}. {} SNPs remain.'.format(M_0 - len(GWAS_int),p+1, len(GWAS_int)))
 
             if np.sum(snps_to_flip) > 0:
-                zz= args.z_name if args.z_name is not None else 'z'
+                zz = args.z_name if args.z_name is not None else 'z'
                 freq_name = args.eaf_name if args.eaf_name is not None else 'freq'
-
-                GWAS_all.loc[snps_to_flip, zz+str(p)] = -1*GWAS_all.loc[snps_to_flip, zz+str(p)]
-                GWAS_all.loc[snps_to_flip, freq_name + str(p)] = 1. - GWAS_all.loc[snps_to_flip, freq_name + str(p)]
-                store_allele = GWAS_all.loc[snps_to_flip, args.a1_name+str(p)]
-                GWAS_all.loc[snps_to_flip, args.a1_name+str(p)] = GWAS_all.loc[snps_to_flip, args.a2_name+str(p)]
-                GWAS_all.loc[snps_to_flip, args.a2_name+str(p)] = store_allele
+                GWAS_int.loc[snps_to_flip, zz+str(p)] = -1*GWAS_int.loc[snps_to_flip, zz+str(p)]
+                GWAS_int.loc[snps_to_flip, freq_name + str(p)] = 1. - GWAS_int.loc[snps_to_flip, freq_name + str(p)]
+                store_allele = GWAS_int.loc[snps_to_flip, args.a1_name+str(p)]
+                GWAS_int.loc[snps_to_flip, args.a1_name+str(p)] = GWAS_int.loc[snps_to_flip, args.a2_name+str(p)]
+                GWAS_int.loc[snps_to_flip, args.a2_name+str(p)] = store_allele
                 logging.info('Flipped the signs of of {} SNPs to make them consistent with the effect allele orderings of the first trait.'.format(np.sum(snps_to_flip)))
-    # tag strand ambiguous SNPs
-        # logging.info(GWAS_all.head(15))
+
         STRAND_AMBIGUOUS_SET = [x for x in allele_info.STRAND_AMBIGUOUS.keys() if allele_info.STRAND_AMBIGUOUS[x]]
 
-        GWAS_all['strand_ambig'] = (GWAS_all[args.a1_name+str(0)].str.upper() + GWAS_all[args.a2_name+str(0)].str.upper()).isin(STRAND_AMBIGUOUS_SET)
-        if args.drop_ambig_snps:
-            M_0 = len(GWAS_all)
-            GWAS_all = GWAS_all[np.logical_not(GWAS_all['strand_ambig'])]
-            logging.info('Dropped {} SNPs due to strand ambiguity, {} SNPs remain.'.format(M_0-len(GWAS_all),len(GWAS_all)))
+        GWAS_int['strand_ambig'] = (GWAS_int[args.a1_name+str(0)].str.upper() + GWAS_int[args.a2_name+str(0)].str.upper()).isin(STRAND_AMBIGUOUS_SET)
+
+        M_0 = len(GWAS_int)
+        GWAS_int = GWAS_int[np.logical_not(GWAS_int['strand_ambig'])]
+        logging.info('Dropped {} SNPs due to strand ambiguity, {} SNPs remain in intersection after merging trait{}'.format(M_0-len(GWAS_int),len(GWAS_int), p+1))
 
     logging.info('... Merge of GWAS summary statistics complete. Number of SNPs:\t {}'.format(len(GWAS_all)))
 
     GWAS_orig_cols = GWAS_all.columns
+
     ## Parses include files
     if args.include is not None:
         for j, include_file in enumerate(args.include.split(',')):
@@ -320,6 +330,7 @@ def load_and_merge_data(args):
         GWAS_all = GWAS_all.loc[GWAS_all['included_merge']=='both']
         GWAS_all = GWAS_all.loc[:,GWAS_orig_cols]
         logging.info('(--include) Number of SNPs remaining after restricting to SNPs in the union of  {include_path}: \t {M} remain'.format(include_path=args.include,M=len(GWAS_all)))
+
     ## Parses exclude files
     if args.exclude is not None:
         for exclude_file in args.exclude.split(','):
@@ -329,20 +340,23 @@ def load_and_merge_data(args):
             GWAS_all = GWAS_all.loc[:,GWAS_orig_cols]
             logging.info('(-exclude) Number of SNPs remaining after excluding to SNPs in {exclude_path}: \t {M} remain'.format(exclude_path=exclude_file,M=len(GWAS_all)))
 
-
     ## Parse chromosomes
     if args.only_chr is not None and not args.no_chr_data:
         chr_toInclude = args.only_chr.split(',')
         chr_toInclude = [int(c) for c in chr_toInclude]
         GWAS_all = GWAS_all[GWAS_all[args.chr_name+str(0)].isin(chr_toInclude)]
 
+    ## conform GWAS_int back to intersection
+    GWAS_int = GWAS_int.merge(GWAS_all[[args.snp_name]],how='inner',on=args.snp_name)
+
     ## add information to Namespace
     args.P = P
 
-    return GWAS_all, args
+    return GWAS_all, GWAS_int, args
 
 def ldsc_matrix_formatter(result_rg, output_var):
-    ''' Key Arguments:
+    ''' 
+    Key Arguments:
     result_rg - matrix w/ RG objects obtained from estimate_rg (w/ None's on the diagonal)
     output_var - interested variable in the form of '.[VAR_NAME]'
     '''
@@ -385,15 +399,13 @@ def estimate_sigma(data_df, args):
         gwas_ss_df[p] = gwas_ss_df[p].rename(columns=ld_ss_name)
         ## remove phenotype index from names
 
-
-
     # run ldsc
     h2_files = None
     rg_files = args.sumstats
     rg_out = '{}_rg_misc'.format(args.out)
     rg_mat = True
 
-    args_ldsc_rg =  Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=None,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[ gwas_ss_df[i] for i in range(args.P)], rg_mat=rg_mat)
+    args_ldsc_rg = Namespace(out=rg_out, bfile=None,l2=None,extract=None,keep=None, ld_wind_snps=None,ld_wind_kb=None, ld_wind_cm=None,print_snps=None, annot=None,thin_annot=False,cts_bin=None, cts_break=None,cts_names=None, per_allele=False, pq_exp=None, no_print_annot=False,maf=None,h2=h2_files, rg=rg_files,ref_ld=None,ref_ld_chr=args.ld_ref_panel, w_ld=None,w_ld_chr=args.ld_ref_panel,overlap_annot=False,no_intercept=False, intercept_h2=None, intercept_gencov=None,M=None,two_step=None, chisq_max=None,print_cov=False,print_delete_vals=False,chunk_size=50, pickle=False,invert_anyway=False,yes_really=False,n_blocks=200,not_M_5_50=False,return_silly_things=False,no_check_alleles=False,print_coefficients=False,samp_prev=None,pop_prev=None, frqfile=None, h2_cts=None, frqfile_chr=None,print_all_cts=False, sumstats_frames=[ gwas_ss_df[i] for i in range(args.P)], rg_mat=rg_mat)
 
     if args.no_overlap:
         sigma_hat = np.zeros((args.P, args.P))
@@ -448,18 +460,18 @@ def _posDef_adjustment(mat, scaling_factor=0.99,max_it=1000):
             logging.info('Completed in {} iterations'.format(n))
         return mat
 
-def extract_gwas_sumstats(DATA, args):
+def extract_gwas_sumstats(DATA, args, t0):
     '''
 
     Output:
     -------
     All matrices are of the shape MxP, where M is the number of SNPs used in MTAG and P is the number of summary statistics results used. Columns are ordered according to the initial ordering of GWAS input files.
     results_template = pd.Dataframe of snp_name chr bpos a1 a2
-    Zs: matriix of Z scores
+    Zs: matrix of Z scores
     Ns: matrix of sample sizes
     Fs: matrix of allele frequencies
     '''
-    n_cols = [args.n_name +str(p) for p in range(args.P)]
+    n_cols = [args.n_name +str(p) for p in t0]
     Ns = DATA.filter(items=n_cols).as_matrix()
 
     # Apply sample-size specific filters
@@ -476,7 +488,7 @@ def extract_gwas_sumstats(DATA, args):
             homogNs_frac_list = [float(x) for x in args.homogNs_frac.split(',')]
             if len(homogNs_frac_list) == 1:
                 homogNs_frac_list = homogNs_frac_list*args.P
-            for p in range(args.P):
+            for p in t0:
                 N_nearMode[:,p] = np.abs((Ns[:,p] - N_modes[p])) / N_modes[p] <= homogNs_frac_list[p]
         elif args.homogNs_dist is not None:
             logging.info('--homogNs_dist {} is on, filtering SNPs ...'.format(args.homogNs_dist))
@@ -485,7 +497,7 @@ def extract_gwas_sumstats(DATA, args):
                 homogNs_dist_list = homogNs_dist_list*args.P
 
             assert np.all(np.array(homogNs_dist_list) >=0)
-            for p in range(args.P):
+            for p in t0:
                 N_nearMode[:,p] =  np.abs(Ns[:,p] - N_modes[p]) <= homogNs_dist_list[p]
         else:
             raise ValueError('Cannot specify both --homogNs_frac and --homogNs_dist at the same time.')
@@ -512,13 +524,13 @@ def extract_gwas_sumstats(DATA, args):
     DATA = DATA[N_passFilter].reset_index()
 
     if args.z_name is not None:
-        z_cols = [args.z_name +str(p) for p in range(args.P)]
+        z_cols = [args.z_name +str(p) for p in t0]
         Zs = DATA.filter(items=z_cols).as_matrix()
     else:
         Zs = DATA.filter(regex='^[zZ].').as_matrix()
         args.z_name = 'z'
     if args.eaf_name is not  None:
-        f_cols = [args.eaf_name + str(p) for p in range(args.P)]
+        f_cols = [args.eaf_name + str(p) for p in t0]
 
         Fs =DATA.filter(items=f_cols).as_matrix()
     else:
@@ -537,10 +549,10 @@ def extract_gwas_sumstats(DATA, args):
     # args.chr args.bpos args.alelle_names
     if args.no_chr_data:
         for col in [args.a1_name, args.a2_name]:
-           results_template.loc[:,col] = DATA[col+str(0)]
+           results_template.loc[:,col] = DATA[col+str(t0[0])]
     else:
         for col in [args.chr_name, args.bpos_name, args.a1_name, args.a2_name]:
-            results_template.loc[:,col] = DATA[col+str(0)]
+            results_template.loc[:,col] = DATA[col+str(t0[0])]
     # TODO: non-error form of integer conversion
     # results_template[args.chr_name] = results_template[args.chr_name].astype(int)
     # results_template[args.bpos_name] = results_template[args.bpos_name].astype(int)
@@ -596,7 +608,6 @@ def gmm_omega(Zs, Ns, sigma_LD):
     Z_outer = np.einsum('mp,mq->mpq',Zs, Zs)
     return np.mean((Z_outer - sigma_LD) / N_mats, axis=0)
 
-
 def numerical_omega(args, Zs,N_mats,sigma_LD,omega_start):
     M,P = Zs.shape
     solver_options = dict()
@@ -638,7 +649,6 @@ def flatten_out_omega(omega_est):
     x_chol_trf[np.diag_indices(P_c)] = np.log(np.diag(x_chol))  # replace with log transformation on the diagonal
     return tuple(x_chol_trf[lowTr_ind])
 
-
 def rebuild_omega(chol_elems, s=None):
     '''Rebuild state-dependent Omega given combination of causal states
        cholX_elements are the elements (entered row-wise) of the lower triangular cholesky decomposition of Omega_s
@@ -666,7 +676,6 @@ def rebuild_omega(chol_elems, s=None):
     s_caus_ind = np.argwhere(np.outer(s, s))
     omega[(s_caus_ind[:,0],s_caus_ind[:,1])] = omega_c.flatten()
     return omega
-
 
 def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
 
@@ -705,6 +714,15 @@ def estimate_omega(args,Zs,Ns,sigma_LD, omega_in=None):
     # else: gmm_omega (default)
     return _posDef_adjustment(gmm_omega(Zs,Ns,sigma_LD))
 
+def cov2corr(cov, return_std=False):
+    '''
+    convert covariance matrix to correlation matrix
+    '''
+    cov = np.asanyarray(cov)
+    std_ = np.sqrt(np.diag(cov))
+    corr = cov / np.outer(std_, std_)
+    return corr
+
 ########################
 ## MTAG CALCULATION ####
 ########################
@@ -718,7 +736,8 @@ def mtag_analysis(Zs, Ns, omega_hat, sigma_LD):
     Sigma_N =  np.einsum('mpq,mqr->mpr',np.einsum('mpq,qr->mpr',W_N_inv,sigma_LD),W_N_inv)
 
     mtag_betas = np.zeros((M,P))
-    mtag_se =np.zeros((M,P))
+    mtag_se = np.zeros((M,P))
+    mtag_factor = np.zeros((M,P))
 
     for p in range(P):
         # Note that in the code, what I call "gamma should really be omega", but avoid the latter term due to possible confusion with big Omega
@@ -732,25 +751,21 @@ def mtag_analysis(Zs, Ns, omega_hat, sigma_LD):
         W_inv_Z = np.einsum('mqp,mp->mq',W_N_inv,Zs)
 
         beta_denom = np.einsum('mp,p->m',np.einsum('q,mqp->mp',yy,inv_xx),yy)
+        mtag_factor[:,p] = np.einsum('mp,m->m',np.einsum('q,mqp->mp',yy,inv_xx), 1/beta_denom)
+        mtag_var_p = 1. / beta_denom
+
         mtag_betas[:,p] = np.einsum('mp,mp->m',np.einsum('q,mqp->mp',yy,inv_xx), W_inv_Z) / beta_denom
-
-        var_denom = np.einsum('mq,q->m',np.einsum('p,mpq->mq',yy,inv_xx),yy)
-
-        mtag_var_p = 1. / var_denom
-
         mtag_se[:,p] = np.sqrt(mtag_var_p)
 
-
-
     logging.info(' ... Completed MTAG calculations.')
-    return mtag_betas, mtag_se
+    return mtag_betas, mtag_se, mtag_factor
 
 
 ####################
 ## SAVING RESULTS ##
 ####################
 
-def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
+def save_mtag_results(args,results_template,Zs,Ns,Fs,mtag_betas,mtag_se,mtag_factor):
     '''
     Output will be of the form:
 
@@ -764,48 +779,91 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     if args.std_betas:
         logging.info('Outputting standardized betas..')
 
-    for p in range(P):
-        logging.info('Writing Phenotype {} to file ...'.format(p+1))
-        out_df = results_template.copy()
-        out_df[args.z_name] = Zs[:,p]
-        out_df[args.n_name] = Ns[:,p]
-        out_df[args.eaf_name] = Fs[:,p]
+    # meta-analysis mode
+    if args.equal_h2 and args.perfect_gencov:
+        logging.info('With meta-analysis mode, MTAG produces a single set of sumstats, where betas are unstandardized using 2p(1-p) where p is the average allele frequencies across traits.')
+        Fs = np.mean(Fs, axis=1)
 
         if args.std_betas:
             weights = np.ones(M,dtype=float)
         else:
-            weights = np.sqrt( 2*Fs[:,p]*(1. - Fs[:,p]))
-        out_df['mtag_beta'] = mtag_betas[:,p] / weights
-        out_df['mtag_se'] = mtag_se[:,p] / weights
+            weights = np.sqrt( 2*Fs*(1.-Fs))
 
-        out_df['mtag_z'] = mtag_betas[:,p]/mtag_se[:,p]
+        # check betas and se are identical in all columns
+        for p in range(1,P):
+            for col in ['mtag_betas','mtag_se']:
+                if not np.all(mtag_betas[:,p] == mtag_betas[:,0]):
+                    raise ValueError('Meta-analysis mode is not implemented correctly')
+
+        # output meta-analysis results
+        logging.info('Writing Meta-analysis results to file ...')
+        out_df = results_template.copy()
+        out_df['meta_freq'] = Fs
+        out_df['mtag_beta'] = mtag_betas[:,0] / weights
+        out_df['mtag_se'] = mtag_se[:,0] / weights
+        out_df['mtag_z'] = mtag_betas[:,0]/mtag_se[:,0]
         out_df['mtag_pval'] = p_values(out_df['mtag_z'])
-
-        if P == 1:
-            out_path = args.out +'_trait.txt'
-        else:
-            out_path = args.out +'_trait_' + str(p+1) + '.txt'
-
-
+        out_path = args.out +'_mtag_meta.txt'
         out_df.to_csv(out_path,sep='\t', index=False)
+
+    else:
+        for p in range(P):
+            logging.info('Writing Phenotype {} to file ...'.format(p+1))
+            out_df = results_template.copy()
+            out_df[args.z_name] = Zs[:,p]
+            out_df[args.n_name] = Ns[:,p]
+            out_df[args.eaf_name] = Fs[:,p]
+
+            if args.std_betas:
+                weights = np.ones(M,dtype=float)
+            else:
+                weights = np.sqrt( 2*Fs[:,p]*(1. - Fs[:,p]))
+            out_df['mtag_beta'] = mtag_betas[:,p] / weights
+            out_df['mtag_se'] = mtag_se[:,p] / weights
+
+            out_df['mtag_z'] = mtag_betas[:,p]/mtag_se[:,p]
+            out_df['mtag_pval'] = p_values(out_df['mtag_z'])
+
+            if P == 1:
+                out_path = args.out +'_trait.txt'
+            else:
+                out_path = args.out +'_trait_' + str(p+1) + '.txt'
+
+            out_df.to_csv(out_path,sep='\t', index=False)
+
+def write_summary(args,Zs,Ns,Fs,mtag_betas,mtag_se,mtag_factor):
+
+    _,P = mtag_factor.shape
 
     if not args.equal_h2:
         omega_out = "\nEstimated Omega:\n"
         omega_out += str(args.omega_hat)
         omega_out += '\n'
+
+        omega_out += "\n(Correlation):\n"
+        omega_out += str(cov2corr(args.omega_hat))
+        omega_out += '\n'
+
         np.savetxt(args.out +'_omega_hat.txt',args.omega_hat, delimiter ='\t')
     else:
         omega_out = "Omega hat not computed because --equal_h2 was used.\n"
 
-
     sigma_out = "\nEstimated Sigma:\n"
     sigma_out += str(args.sigma_hat)
     sigma_out += '\n'
-    np.savetxt( args.out +'_sigma_hat.txt',args.sigma_hat, delimiter ='\t')
+
+    sigma_out += "\n(Correlation):\n"
+    sigma_out += str(cov2corr(args.sigma_hat))
+    sigma_out += '\n'
+
+    np.savetxt(args.out +'_sigma_hat.txt',args.sigma_hat, delimiter ='\t')
+
+    weight_out = "\nMTAG weight factors: (average across SNPs)\n"
+    weight_out += str(np.mean(mtag_factor,axis=0))
+    weight_out += '\n'
 
     summary_df = pd.DataFrame(index=np.arange(1,P+1))
     input_phenotypes = [ '...'+f[-16:] if len(f) > 20 else f for f in args.sumstats.split(',')]
-
 
     for p in range(P):
 
@@ -828,15 +886,32 @@ def save_mtag_results(args,results_template,Zs,Ns, Fs,mtag_betas,mtag_se):
     final_summary += str(summary_df.round(3))+'\n'
     final_summary += omega_out
     final_summary += sigma_out
+    final_summary += weight_out
 
     logging.info(final_summary)
     logging.info(' ')
     logging.info('MTAG results saved to file.')
-'''
-Functions for maxFDR parallelization
-'''
-create_S = lambda P: np.asarray(list(itertools.product([False,True], repeat=P)))
 
+def save_mtag_results_U(args, comb_df):
+    '''
+    Concatenate mtag results by subtypes and write to files
+    '''    
+    for p in range(args.P):
+        logging.info('Writing Phenotype {} to file...'.format(p+1))
+        comb_df_extract = [comb_df[y][x] for y in comb_df.keys() for x in comb_df[y].keys() if x==p]
+        out_df = pd.concat(comb_df_extract, axis=0)
+        M_0 = out_df.shape[0]
+        #df_orig_cols = df.columns
+        #df = df.merge(GWAS_d[p], how='inner', on=args.snp_name)
+        #df = df.loc[:,df_orig_cols]
+        if M_0 - out_df.shape[0] != 0:
+            raise ValueError('--meta_format option was not implemented correctly.')
+
+        out_path = args.out +'_trait_' + str(p+1) + '.txt'
+        out_df.to_csv(out_path,sep='\t', index=False, na_rep="NA")
+
+## maxFDR Functions
+create_S = lambda P: np.asarray(list(itertools.product([False,True], repeat=P)))
 
 def MTAG_var_Z_jt_c(t, Omega, Omega_c, sigma_LD, Ns):
 
@@ -873,19 +948,21 @@ def MTAG_var_Z_jt_c(t, Omega, Omega_c, sigma_LD, Ns):
 
     return numer / denom
 
-
 def simplex_walk(num_dims, samples_per_dim):
     """
     A generator that returns lattice points on an n-simplex.
     """
+    try:
+        from itertools import izip
+    except:
+        izip = zip
+
     max_ = samples_per_dim + num_dims - 1
     for c in itertools.combinations(range(max_), num_dims):
-        #print(c)
+        #logging.info(c)
         c = list(c)
         yield np.array([(y - x - 1.) / (samples_per_dim - 1.)
-               for x, y in itertools.izip([-1] + c, c + [max_])])
-
-
+               for x, y in izip([-1] + c, c + [max_])])
 
 def scale_omega(gen_corr_mat, priors, S=None):
     assert gen_corr_mat.shape[0] == gen_corr_mat.shape[1]
@@ -898,7 +975,7 @@ def scale_omega(gen_corr_mat, priors, S=None):
         for p2 in range(T):
             # indices of states that are casual for both traits p1 and p2.
             caus_state = np.arange(n_S)[np.logical_and(S[:, p1], S[:, p2])]
-            # print(np.sum(priors[caus_state]))
+            # logging.info(np.sum(priors[caus_state]))
             omega[p1,p2] = gen_corr_mat[p1,p2] / np.sum(priors[caus_state])
 
     return omega
@@ -931,7 +1008,6 @@ def compute_fdr(prob, t, omega, sigma, S, Ns,N_counts, p_threshold):
 
     return FDR_val
 
-
 def is_pos_semidef(m):
     if m.shape[0] == 2 and m.shape[1] == 2:
         return np.sqrt(m[0, 0]*m[1,1]) >= np.abs(m[0, 1])
@@ -939,7 +1015,6 @@ def is_pos_semidef(m):
         eigs =  np.linalg.eigvals(m)
 
     return np.all(eigs >= 0)
-
 
 def neglogL_single_SS(x, beta, se, transformed=True):
     '''
@@ -966,10 +1041,8 @@ def neglogL_single_SS(x, beta, se, transformed=True):
 
     return -1. * np.sum(np.log( (1.0-prob_null)*causal_pdf + prob_null * noncausal_pdf))
 
-
 def cback_print(x):
     logging.info(x)
-
 
 def _optim_ss(f_args):
     beta_t, se_t, starting_params, solver_opts = f_args
@@ -982,7 +1055,6 @@ def _optim_ss(f_args):
     pi_null =  1.0 / (1.0 + np.exp(-1 * t_pi))
     tau = np.exp(-t_tau)
     return pi_null, tau
-
 
 def ss_estimation(args, betas, se, max_iter=1000, tol=1.0e-10,
                   starting_params =(0.5, 1.0e-3),
@@ -1020,8 +1092,6 @@ def ss_estimation(args, betas, se, max_iter=1000, tol=1.0e-10,
                                           batch_size=1)(joblib.delayed(_optim_ss)(f_args) for f_args in arg_list_ss)
     return ss_results
 
-
-
 def some_causal_for_allT(probs, S):
     # probability of being causal is nonzero for all traits
     n_S, T = S.shape
@@ -1047,19 +1117,16 @@ def _FDR_par(func_args):
 
 def fdr(args, Ns_f, Zs):
     '''
-     Ns: Mx T matrix of sample sizes
+    Ns: Mx T matrix of sample sizes
     '''
-    # M,T = Ns.shape
+    logging.info('Beginning maxFDR calculations. Depending on the number of grid points specified, this might take some time...')
 
-    # only use unique values
     if not args.grid_file:
         if args.intervals <= 0:
             raise ValueError('spacing of grid points for the max FDR calculation must be a positive integer')
 
     Ns = np.round(Ns_f) # round to avoid decimals
-    Ns_unique, Ns_counts = np.unique(Ns, return_counts=True, axis=0)
-    M_eff, T = Ns_unique.shape
-
+    M,T = Ns.shape
     logging.info('T='+str(T))
     S = create_S(T)
     causal_prob = lambda x, SS: np.sum(np.einsum('s,st->st',x,SS),axis=0)
@@ -1088,7 +1155,7 @@ def fdr(args, Ns_f, Zs):
 
 
         prob_grid = [p for p in prob_grid if np.all(np.abs(causal_prob(p,S)-pi_causal_ss) < (1. / args.intervals) ) ]
-        logging.info('{} probabilities remain after restricting to the grid points with causal probabilities within one unit for each trait'.format(len(prob_grid)))
+        logging.info('{} probabilities remain after restricting to the grid points with causal probabilities less than one unit (i.e. 1/intervals) from the Spike-Slab fitted causal probabilities.'.format(len(prob_grid)))
 
     logging.info('Number of gridpoints to search: {}'.format(len(prob_grid)))
 
@@ -1097,9 +1164,14 @@ def fdr(args, Ns_f, Zs):
     # performing coarse grid search
     logging.info('Performing grid search using {} cores.'.format(args.cores))
 
-
-    N_vals = np.mean(Ns, axis=0, keepdims=True) if args.n_approx else Ns_unique
-    N_weights = np.ones(1) if args.n_approx else Ns_counts
+    if args.n_approx:
+        N_vals = np.mean(Ns, axis=0, keepdims=True)
+        N_weights = np.ones(1)
+    else:
+        Ns_unique, Ns_counts = np.unique(Ns, return_counts=True, axis=0)
+        N_vals = Ns_unique
+        N_weights = Ns_counts
+        assert np.sum(N_weights) == len(Ns)
 
     # # define parallelization function
     # def _FDR_par(func_args):
@@ -1110,11 +1182,7 @@ def fdr(args, Ns_f, Zs):
     #     probs, g, t = func_args
     #     return compute_fdr(probs, t, args.omega_hat, args.sigma_hat, S, Ns, args.p_sig)  , (g,t)
 
-
-    if not args.n_approx:
-        assert np.sum(N_weights) == len(Ns)
-
-    arg_list = [(probs, args.omega_hat, args.sigm_hat, S, N_vals,N_weights, args.p_sig, g, t) for t in range(T) for g, probs in enumerate(prob_grid)]
+    arg_list = [(probs, args.omega_hat, args.sigma_hat, S, N_vals,N_weights, args.p_sig, g, t) for t in range(T) for g, probs in enumerate(prob_grid)]
     NN = len(arg_list)
     K = 10
     start_fdr =time.time()
@@ -1142,9 +1210,15 @@ def fdr(args, Ns_f, Zs):
     ind_max = np.argmax(FDR, axis=0)
     logging.info('grid point indices for max FDR for each trait: {}'.format(ind_max))
     max_FDR = np.max(FDR, axis=0)
-    logging.info('Maximum FDR')
-    for t in range(T):
-        logging.info('Max FDR of Trait {}: {} at probs = {}'.format(t+1, max_FDR[t], prob_grid[ind_max[t]]))
+
+    if args.fit_ss:
+        logging.info('FDR with the Spike-Slab parameters')
+        for t in range(T):
+            logging.info('FDR of Trait {}: {} at probs = {}'.format(t+1, max_FDR[t], prob_grid[ind_max[t]]))
+    else:
+        logging.info('Maximum FDR')
+        for t in range(T):
+            logging.info('Max FDR of Trait {}: {} at probs = {}'.format(t+1, max_FDR[t], prob_grid[ind_max[t]]))
 
     logging.info(borderline)
     logging.info('Completed FDR calculations.')
@@ -1156,10 +1230,9 @@ def mtag(args):
         raise ValueError("--equal_h2 option used without --perfect_gencov. To use --equal_h2, --perfect_gencov must be also be included.")
 
      ## Instantiate log file and masthead
-    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d/%I:%M:%S %p')
+    logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.log', filemode='w', level=logging.DEBUG,datefmt='%Y/%m/%d/%I:%M:%S %p')
     if args.stream_stdout:
-        logging.getLogger().addHandler(logging.StreamHandler()) # prints to console
-
+        logging.getLogger().addHandler(logging.StreamHandler())
     header_sub = header
     header_sub += "Calling ./mtag.py \\\n"
     defaults = vars(parser.parse_args(''))
@@ -1195,11 +1268,10 @@ def mtag(args):
     logging.info("Beginning MTAG analysis...")
 
     # 2. Load Data and perform restrictions
-    DATA, args = load_and_merge_data(args)
+    DATA_U, DATA, args = load_and_merge_data(args)
 
     # 3. Extract core information from combined GWAS data
-    Zs , Ns ,Fs, res_temp, DATA = extract_gwas_sumstats(DATA,args)
-
+    Zs , Ns ,Fs, res_temp, DATA = extract_gwas_sumstats(DATA,args,list(np.arange(args.P)))
 
     if not args.drop_ambig_snps:
         logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded due to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
@@ -1216,8 +1288,8 @@ def mtag(args):
 
     else:
         args.sigma_hat = _read_matrix(args.residcov_path)
-    args.sigm_hat = _posDef_adjustment(args.sigma_hat)
-    logging.info('Sigma hat:\n{}'.format(args.sigm_hat))
+    args.sigma_hat = _posDef_adjustment(args.sigma_hat)
+    logging.info('Sigma hat:\n{}'.format(args.sigma_hat))
 
 
     G_mean_c2_adj = np.mean(np.square(Zs),axis=0) / np.diag(args.sigma_hat)
@@ -1229,9 +1301,7 @@ def mtag(args):
         low_c2_msg += 'MTAG may not perform well in this situation.'
         logging.info(low_c2_msg)
 
-
     #5. Estimate Omega
-
     if args.gencov_path is None:
         not_SA = np.logical_not(np.array(DATA['strand_ambig']))
         args.omega_hat = estimate_omega(args, Zs[not_SA], Ns[not_SA], args.sigma_hat)
@@ -1242,26 +1312,84 @@ def mtag(args):
 
     assert args.omega_hat.shape[0] == args.omega_hat.shape[1] == Zs.shape[1] == args.sigma_hat.shape[0] == args.sigma_hat.shape[1]
 
-    #6. Perform MTAG
-    mtag_betas, mtag_se = mtag_analysis(Zs, Ns, args.omega_hat, args.sigma_hat)
+    #6. Meta format analysis
+    if args.meta_format:
+        create_ind = lambda P: np.asarray(list(itertools.product([0,1], repeat=P)))
+        snp_type = create_ind(args.P)
+        snp_dict = {tuple(snp_type[s]): snp_type[s] for s in range(len(snp_type))}
 
-    #7. Output GWAS_results
-    save_mtag_results(args, res_temp,Zs,Ns, Fs,mtag_betas,mtag_se)
+        # Generate subgroups of SNPs
+        sub_list = [x for x in DATA_U.groupby([x for x in DATA_U.columns if "Trait" in x])]
+        sub_dict = {sub_list[x][0]: sub_list[x][1] for x in range(len(sub_list))}
+        combo_dict = dict()
 
+        # Loop over subtypes of SNPs
+        comb_df = dict.fromkeys(sub_dict.keys())
 
+        for s in range(len(sub_dict)):
+            t = np.sum(list(sub_dict.keys())[s])
+            tl = np.arange(args.P)[np.in1d(list(sub_dict.keys())[s],1)] #indexes of true trait
+
+            # extract columns that are of p trait
+            GWAS_sub = dict()
+            for i in tl:
+                GWAS_sub[i] = sub_dict[sub_list[s][0]].filter(regex='^{}|.+{}$'.format(args.snp_name,i))
+
+            # inner merge sumstats for each trait
+            snp_df = reduce(lambda L,R: pd.merge(L,R,how='inner',on=args.snp_name), list(GWAS_sub.values()))
+            combo_dict[sub_list[s][0]] = snp_df
+            logging.info('There are {M} SNPs present in Traits {tl}'.format(M=snp_df.shape[0], tl=np.array_str(tl)))
+
+            # No need to flip SNPs if they are present in some but not all sumstats? 
+
+            # extract gwas sumstats for each combo
+            Zs, Ns, Fs, resid_cols, _ = extract_gwas_sumstats(snp_df, args, tl)
+
+            # perform MTAG on each type of SNPs
+            omega_sub, sigma_sub = args.omega_hat[tl[:,None],tl[None,:]], args.sigma_hat[tl[:,None],tl[None,:]]
+            mtag_betas, mtag_se, mtag_factor = mtag_analysis(Zs, Ns, omega_sub, sigma_sub)
+
+            # combine types of SNPs by traits <save_mtag_results>
+
+            p_values = lambda z: 2*(scipy.stats.norm.cdf(-1.*np.abs(z)))
+
+            M,_ = mtag_betas.shape
+
+            comb_df[sub_list[s][0]] = dict() # combo's keys are the index of true traits
+
+            for p,t in enumerate(tl):
+                comb_df[sub_list[s][0]][t] = resid_cols.copy()
+                comb_df[sub_list[s][0]][t][args.z_name] = Zs[:,p]
+                comb_df[sub_list[s][0]][t][args.n_name] = Ns[:,p]
+                comb_df[sub_list[s][0]][t][args.eaf_name] = Fs[:,p]
+
+                if args.std_betas:
+                    weights = np.ones(M,dtype=float)
+                else:
+                    weights = np.sqrt( 2*Fs[:,p]*(1. - Fs[:,p]))
+                comb_df[sub_list[s][0]][t]['mtag_beta'] = mtag_betas[:,p] / weights
+                comb_df[sub_list[s][0]][t]['mtag_se'] = mtag_se[:,p] / weights
+                comb_df[sub_list[s][0]][t]['mtag_z'] = mtag_betas[:,p]/mtag_se[:,p]
+                comb_df[sub_list[s][0]][t]['mtag_pval'] = p_values(comb_df[sub_list[s][0]][t]['mtag_z'])
+
+        # check all elements sum to union SNPs
+        comb_flat = [list(comb_df[y].values())[0] for y in comb_df.keys()]
+        assert DATA_U.shape[0] == np.sum(np.asarray([x.shape[0] for x in comb_flat]))
+
+    mtag_betas, mtag_se, mtag_factor = mtag_analysis(Zs, Ns, args.omega_hat, args.sigma_hat)
+
+    #7. Save sumstats to files
+    if args.meta_format:
+        save_mtag_results_U(args, comb_df)
+    else:
+        save_mtag_results(args, res_temp, Zs, Ns, Fs, mtag_betas, mtag_se, mtag_factor)
+
+    write_summary(args,Zs,Ns,Fs,mtag_betas,mtag_se,mtag_factor)
 
     if args.fdr:
-
-        logging.info('Beginning maxFDR calculations. Depending on the number of grid points specified, this might take some time...')
-
         fdr(args, Ns, Zs)
-        ### ZZZ use function fdr(args, Ns)
-
 
     logging.info('MTAG complete. Time elapsed: {}'.format(sec_to_str(time.time()-start_time)))
-
-
-
 
 parser = argparse.ArgumentParser(description="\n **mtag: Multitrait Analysis of GWAS**\n This program is the implementation of MTAG method described by Turley et. al. Requires the input of a comma-separated list of GWAS summary statistics with identical columns. It is recommended to pass the column names manually to the program using the options below. The implementation of MTAG makes use of the LD Score Regression (ldsc) for cleaning the data and estimating residual variance-covariance matrix, so the input must also be compatible ./munge_sumstats.py command in the ldsc distribution included with mtag. The default estimation method for the genetic covariance matrix Omega is GMM (as described in the paper). \n\n Note below: any list of passed to the options below must be comma-separated without whitespace.")
 
@@ -1319,11 +1447,9 @@ special_cases.add_argument('--equal_h2', default=False, action='store_true', hel
 fdr_opts = parser.add_argument_group(title='Max FDR calculation', description="These options are used for the calculation of an upper bound on the false disovery under the model described in Supplementary Note 1.1.4 of Turley et al. (2017). Note that there is one of three ways to define the space of grid points over which the upper bound is searched. ")
 
 fdr_opts.add_argument('--fdr', default=False, action='store_true', help='Perform max FDR calculations')
-# fdr_opts.add_argument(title='--skip-mtag', default=False, action='store_true',) # XXX make option to skip mtag calculations if already done.
-# make mutually exclusive group
+fdr_opts.add_argument('--skip_mtag', default=False, action='store_true', help='Skip calculations of MTAG and perform FDR only.')
 fdr_opts.add_argument('--grid_file',default=None, action='store', help='Pre-set list of grid points. Users can define a list of grid points over which the search is conducted. The list of grid points should be passed in text file as a white-space delimited matrix of dimnesions, G x S, where G is the number of grid points and S = 2^T is the number of possible causal states for SNPs. States are ordered according to a tree-like recursive structure from right to left. For example, for 3 traits, with the triple TFT denoting the state for which SNPs are causal for State 1, not causal for state 2, and causal for state 3, then the column ordering of probabilities should be: \nFFF FFT FTF FTT TFF TFT TTF TTT\n There should be no headers, or row names in the file. Any rows for which (i) the probabilities do not sum to 1, the prior of a SNP being is causal is 0 for any of the traits, and (iii) the resulting genetic correlation matrix is non positive definite will excluded in the search.')
 # XXX rounding to 1e-6 & restandardize.
-
 fdr_opts.add_argument('--fit_ss', default=False, action='store_true', help='This estimates the prior probability that a SNP is null for each trait and then proceeds to restrict the grid search to the set of probability vectors that sum to the prior null for each trait. This is useful for restrict the search space of larger-dimensional traits.')
 
 fdr_opts.add_argument('--intervals', default=10, action='store',type=int, help='Number of intervals that you would like to partition the [0,1] interval. For example example, with two traits and --intervals set 10, then maxFDR will calculated over the set of feasible points in {0., 0.1, 0.2,..,0.9,1.0}^2.')
@@ -1331,7 +1457,7 @@ fdr_opts.add_argument('--intervals', default=10, action='store',type=int, help='
 fdr_opts.add_argument('--cores', default=1, action='store', type=int, help='Number of threads/cores use to compute the FDR grid points for each trait.')
 
 fdr_opts.add_argument('--p_sig', default=5.0e-8, type=float, action='store', help='P-value threshold used for statistical signifiance. Default is p=5.0e-8 (genome-wide significance).' )
-fdr_opts.add_argument('--n_approx', default=False, action='store_true', help='Speed up FDR calculation by replacing the sample size of a SNP for each trait by the mean across SNPs (for each trait). Recommended.')
+fdr_opts.add_argument('--n_approx', default=True, action='store_true', help='Speed up FDR calculation by replacing the sample size of a SNP for each trait by the mean across SNPs (for each trait). Recommended.')
 
 # fdr_opts.add_argument('--binned_n', default=False, action='store_true', help='When --n_approx is off, this options allows for a sped-up version of the max_FDR calculation by weighting the power calculations of unique rows.')
 
@@ -1355,10 +1481,39 @@ misc.add_argument('--stream_stdout', default=False, action='store_true', help='W
 if __name__ == '__main__':
     start_t = time.time()
     args = parser.parse_args()
-    try:
-        mtag(args)
-    except Exception as e:
-        logging.error(e,exc_info=True)
-        logging.info('Analysis terminated from error at {T}'.format(T=time.ctime()))
-        time_elapsed = round(time.time() - start_t, 2)
-        logging.info('Total time elapsed: {T}'.format(T=sec_to_str(time_elapsed)))
+
+    if args.skip_mtag:
+        # avoid overwriting the original mtag log file
+        logging.basicConfig(format='%(asctime)s %(message)s', filename=args.out + '.FDR.log', filemode='w', level=logging.INFO,datefmt='%Y/%m/%d/%I:%M:%S %p')
+        if args.stream_stdout:
+            logging.getLogger().addHandler(logging.StreamHandler()) # logging.infos to console
+
+        # parse output options
+        (out_dir, out_file) = os.path.split(args.out)
+        ofile_list = [x for x in os.listdir(out_dir) if out_file+'_trait' in x]
+        T = len(ofile_list)
+        df_d = dict()
+
+        # extract Ns and Zs
+        for t in range(T):
+            df_d[t] = pd.read_csv('{}_trait_{}.txt'.format(args.out, t+1), index_col=None, delim_whitespace=True)
+            if t == 0:
+                N_mat = np.empty((len(df_d[t]), T))
+                Z_mat = np.empty((len(df_d[t]), T))
+            N_mat[:,t] = df_d[t]['n']    
+            Z_mat[:,t] = df_d[t]['z']
+
+        # read in omega + sigma
+        args.sigma_hat = np.loadtxt('{}/{}_sigma_hat.txt'.format(out_dir, out_file))
+        args.omega_hat = np.loadtxt('{}/{}_omega_hat.txt'.format(out_dir, out_file))
+
+        fdr(args, N_mat, Z_mat)
+
+    else:             
+        try:
+            mtag(args)
+        except Exception as e:
+            logging.error(e,exc_info=True)
+            logging.info('Analysis terminated from error at {T}'.format(T=time.ctime()))
+            time_elapsed = round(time.time() - start_t, 2)
+            logging.info('Total time elapsed: {T}'.format(T=sec_to_str(time_elapsed)))
