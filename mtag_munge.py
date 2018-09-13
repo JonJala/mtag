@@ -780,9 +780,9 @@ def munge_sumstats(args, write_out=True, new_log=True):
 
         # check that we have all the columns we need
         if not args.a1_inc:
-            req_cols = ['SNP', 'P', 'SE', 'SIGNED_SUMSTAT', 'FRQ']
+            req_cols = ['SNP', 'P', 'SIGNED_SUMSTAT', 'FRQ']
         else:
-            req_cols = ['SNP', 'P', 'SE', 'FRQ']
+            req_cols = ['SNP', 'P', 'FRQ']
 
         for c in req_cols:
             if c not in cname_translation.values():
