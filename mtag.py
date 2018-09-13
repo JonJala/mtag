@@ -1360,10 +1360,10 @@ def mtag(args):
             # extract columns that are of p trait
             GWAS_sub = dict()
             for i in tl:
-                GWAS_sub[i] = sub_dict[sub_list[s][0]].filter(regex='^{}|.+{}$'.format(args.snp_name,i))
+                GWAS_sub[i] = sub_dict[sub_list[s][0]].filter(regex='^SNP|.+{}$'.format(i))
 
             # inner merge sumstats for each trait
-            snp_df = reduce(lambda L,R: pd.merge(L,R,how='inner',on=args.snp_name), list(GWAS_sub.values()))
+            snp_df = reduce(lambda L,R: pd.merge(L,R,how='inner',on='SNP'), list(GWAS_sub.values()))
             combo_dict[sub_list[s][0]] = snp_df
             logging.info('There are {M} SNPs present in Traits {tl}'.format(M=snp_df.shape[0], tl=np.array_str(tl)))
 
