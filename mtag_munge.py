@@ -43,6 +43,7 @@ def set_default_cnames(args):
         'RS_NUMBER':  'SNP',
         'RS_NUMBERS':  'SNP',
         'rsID': 'SNP',
+        'snpid':'SNP',
 
         # n
         'N': 'N',
@@ -63,12 +64,14 @@ def set_default_cnames(args):
         'MAF': 'FRQ',
         'FRQ_U': 'FRQ',
         'F_U': 'FRQ',
+        'freq': 'FRQ',
 
         # chr
         'CHR': 'CHR',
         'Chromosome': 'CHR',
         'chromosome': 'CHR',
         'Chr': 'CHR',
+        'chr': 'CHR',
 
         # bpos
         'BPOS': 'BP',
@@ -80,6 +83,7 @@ def set_default_cnames(args):
         'pos': 'BP',
         'position': 'BP',
         'Position': 'BP',
+        'bpos': 'BP',
 
         # a1
         'A1': 'A1',
@@ -89,6 +93,7 @@ def set_default_cnames(args):
         'effect_allele': 'A1',
         'EA': 'A1',
         'ea': 'A1',
+        'a1': 'A1',
 
         # a2
         'A2': 'A2',
@@ -100,6 +105,7 @@ def set_default_cnames(args):
         'other_allele': 'A2',
         'OA': 'A2',
         'oa': 'A2',
+        'a2': 'A2',
 
         # beta
         'BETA': 'BETA',
@@ -135,6 +141,7 @@ def set_default_cnames(args):
         'P_unadj': 'P',
         'p_unadj': 'P',
         'P_UNADJ': 'P',
+        'pval': 'P',
 
         # info
         'INFO': 'INFO',
@@ -780,9 +787,9 @@ def munge_sumstats(args, write_out=True, new_log=True):
 
         # check that we have all the columns we need
         if not args.a1_inc:
-            req_cols = ['SNP', 'P', 'SIGNED_SUMSTAT', 'FRQ']
+            req_cols = ['SNP', 'P', 'SIGNED_SUMSTAT']
         else:
-            req_cols = ['SNP', 'P', 'FRQ']
+            req_cols = ['SNP', 'P']
 
         for c in req_cols:
             if c not in cname_translation.values():
