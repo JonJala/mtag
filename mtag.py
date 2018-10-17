@@ -72,7 +72,7 @@ def _read_SNPlist(file_path, SNP_index):
     # TODO Add more possible ways of reading SNPlists
     snplist = pd.read_csv(file_path, header=0, index_col=False)
     if SNP_index not in snplist.columns:
-        raise ValueError("SNPlist read from {} does include --snp_name {} in its columns.".format(file_path, SNP_index))
+        raise ValueError("SNPlist read from {} does not include --snp_name {} in its columns.".format(file_path, SNP_index))
     return pd.read_csv(file_path, header=0, index_col=False)
 
 def _read_GWAS_sumstats(GWAS_file_name, chunksize):
@@ -143,14 +143,13 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
     a1_munge = None if args.a1_name == "a1" else args.a1_name
     a2_munge = None if args.a2_name == "a2" else args.a2_name
     eaf_munge = None if args.eaf_name == "freq" else args.eaf_name
+    beta_munge = None if args.beta_name == 'beta' else args.beta_name
+    se_munge = None if args.se_name == 'se' else args.se_name
+    z_munge = args.z_name if args.z_name is not None else 'z'
 
-    if args.beta_name:
-        beta_munge = args.beta_name
-        se_munge = args.se_name
-
+    if args.use_beta_se:
         argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=a1_munge, a2=a2_munge, p=None,frq=eaf_munge,signed_sumstats=beta_munge+',0', keep_beta=True, keep_se=True, info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
     else:
-        z_munge = args.z_name if args.z_name is not None else 'z'
         argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=a1_munge, a2=a2_munge, p=None,frq=eaf_munge,signed_sumstats=z_munge+',0', keep_beta=False, keep_se=False, info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
 
     logging.info(borderline)
@@ -246,12 +245,9 @@ def load_and_merge_data(args):
         GWAS_d[p], sumstats_format[p] = _perform_munge(args, GWAS_d[p], gwas_dat_gen, p)
 
         # generate Z checker:
-        if args.beta_name:
-            if not args.se_name:
-                raise IOError('Internal error in the codes - should have been captured earlier!')
-            else:
-                GWAS_d[p]['Z'] = GWAS_d[p][args.beta_name] / GWAS_d[p][args.se_name]
-                z_checker = np.mean(np.square(GWAS_d[p]['Z']))
+        if args.use_beta_se:
+            GWAS_d[p]['Z'] = GWAS_d[p][args.beta_name] / GWAS_d[p][args.se_name]
+            z_checker = np.mean(np.square(GWAS_d[p]['Z']))
         else:
             z_checker = np.mean(np.square(GWAS_d[p][args.z_name]))
 
@@ -411,7 +407,7 @@ def estimate_sigma(data_df, args):
                       'Z' + str(p):   'Z',
                       'N' + str(p):   'N',
                       'FRQ' + str(p): 'FRQ'}
-        if args.beta_name:
+        if args.use_beta_se:
             ld_ss_name['BETA' + str(p)] = 'BETA'
             ld_ss_name['SE' + str(p)] = 'SE'
 
@@ -545,7 +541,7 @@ def extract_gwas_sumstats(DATA, args, t0):
     f_cols = ['FRQ'+ str(p) for p in t0]
     Fs = DATA.filter(items=f_cols).as_matrix()
 
-    if args.beta_name:
+    if args.use_beta_se:
         beta_cols = ['BETA'+str(p) for p in t0]
         se_cols = ['SE'+str(p) for p in t0]
         BETAs = DATA.filter(items=beta_cols).as_matrix()
@@ -1286,13 +1282,10 @@ def mtag(args):
     logging.info("Beginning MTAG analysis...")
 
     # check for beta/se vs z/n option
-    if (args.beta_name or args.se_name):
-        if not args.se_name:
-            raise IOError('Please also specify --se_name if --beta_name is specified.')
-        elif not args.beta_name:
-            raise IOError('Please also specify --beta_name if --se_name is specified.')
-        else:
-            logging.info('MTAG will use the provided BETA/SE columns for analyses')
+    if args.use_beta_se:
+        logging.info('MTAG will use the provided BETA/SE columns for analyses.')
+    else:
+        logging.info('MTAG will use the Z column for analyses.') 
 
     # 2. Load Data and perform restrictions
     DATA_U, DATA, args = load_and_merge_data(args)
@@ -1457,6 +1450,7 @@ filter_opts.add_argument("--drop_ambig_snps", default=False, action="store_true"
 filter_opts.add_argument("--no_allele_flipping", default=False, action="store_true", help="Prevents flipping the effect sizes of summary statistics when the effect and non-effect alleles are reversed (reletive the first summary statistics file.")
 
 special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implicit in each option are violated.")
+special_cases.add_argument('--use_beta_se', default=False, action='store_true', help='If turned on, MTAG will use the provided BETA and SE columns to perform estimation. By default, MTAG uses the Z-statistic.')
 special_cases.add_argument('--no_overlap', default=False, action='store_true', help='Imposes the assumption that there is no sample overlap between the input GWAS summary statistics. MTAG is performed with the off-diagonal terms on the residual covariance matrix set to 0.')
 special_cases.add_argument('--perfect_gencov', default=False, action='store_true', help='Imposes the assumption that all traits used are perfectly genetically correlated with each other. The off-diagonal terms of the genetic covariance matrix are set to the square root of the product of the heritabilities')
 special_cases.add_argument('--equal_h2', default=False, action='store_true', help='Imposes the assumption that all traits passed to MTAG have equal heritability. The diagonal terms of the genetic covariance matrix are set equal to each other. Can only be used in conjunction with --perfect_gencov')
