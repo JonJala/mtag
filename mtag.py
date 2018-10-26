@@ -196,6 +196,18 @@ def _quick_mode(ndarray,axis=0):
     modals = srt[tuple(index)].reshape(location.shape)
     return (modals, counts)
 
+def set_default_cnames(args):
+    return{args.snp_name: 'SNP',
+            args.z_name: 'Z',
+            args.n_name: 'N',
+            args.beta_name: 'BETA',
+            args.se_name: 'SE',
+            args.eaf_name: 'FRQ',
+            args.chr_name: 'CHR',
+            args.bpos_name: 'BP',
+            args.a1_name: 'A1',
+            args.a2_name: 'A2'}
+
 def load_and_merge_data(args):
     '''
     Parses file names from MTAG command line arguments and returns the relevant used for method.
@@ -260,6 +272,7 @@ def load_and_merge_data(args):
             if z_checker < 1.02:
                 logging.info("Warning: The mean chi2 statistic of trait {} is less 1.02 - MTAG estimates may be unstable.".format(p+1))
             GWAS_d[p].rename(columns=munge_sumstats.set_default_cnames(args), inplace=True)
+            GWAS_d[p].rename(columns=set_default_cnames(args), inplace=True)
             GWAS_d[p] = GWAS_d[p].add_suffix(p)
 
         # convert Alleles to uppercase

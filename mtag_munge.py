@@ -114,12 +114,15 @@ def set_default_cnames(args):
         'Effect': 'BETA',
         'effect': 'BETA',
         'b': 'BETA',
+        'beta': 'BETA',
 
         # se
         'SE': 'SE',
         'SE_unadj': 'SE',
         'se_unadj': 'SE',
-        'SE_UNADJ': 'SE',       
+        'SE_UNADJ': 'SE',
+        'se': 'SE',
+        's': 'SE',  
 
         # z
         'Z': 'Z',
