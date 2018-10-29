@@ -143,8 +143,7 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
     a1_munge = None if args.a1_name == "a1" else args.a1_name
     a2_munge = None if args.a2_name == "a2" else args.a2_name
     eaf_munge = None if args.eaf_name == "freq" else args.eaf_name
-    beta_munge = None if args.beta_name == 'beta' else args.beta_name
-    se_munge = None if args.se_name == 'se' else args.se_name
+    beta_munge = args.beta_name if args.beta_name is not None else 'beta'
     z_munge = args.z_name if args.z_name is not None else 'z'
 
     if args.use_beta_se:
