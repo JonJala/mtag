@@ -4,7 +4,7 @@
 
 ## Getting Started
 
-We recommend installing the [Anaconda python distribution](https://www.continuum.io/downloads) as it includes all of the packages listed below. It also makes updating packages relatively painless with the `conda update` command.
+We recommend installing the [Anaconda python distribution](https://www.anaconda.com/download/) as it includes all of the packages listed below. It also makes updating packages relatively painless with the `conda update` command.
 
 To run `mtag`, you will need to have Python 2.7 installed with the following packages:
 
