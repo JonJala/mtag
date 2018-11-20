@@ -20,6 +20,8 @@ from ldsc_mod.ldscore import sumstats as sumstats_sig
 from ldsc_mod.ldscore import allele_info
 
 import mtag_munge as munge_sumstats
+import warnings
+warnings.filterwarnings("ignore")
 
 __version__ = '1.0.8'
 
@@ -273,6 +275,14 @@ def load_and_merge_data(args):
             GWAS_d[p].rename(columns=munge_sumstats.set_default_cnames(args), inplace=True)
             GWAS_d[p].rename(columns=set_default_cnames(args), inplace=True)
             GWAS_d[p] = GWAS_d[p].add_suffix(p)
+
+        # flag inconsistency change
+        if args.info_min_list[p] is not None and "INFO{}".format(p) not in GWAS_d[p].columns:
+            raise IOError("--info_min is specified but info column is not present in sumstats {}".format(p+1))
+        if args.maf_min_list[p] is not None and "FRQ{}".format(p) not in GWAS_d[p].columns:
+            raise IOError("--maf_min is specified but maf column is not present in sumstats {}".format(p+1))
+        if args.n_min_list[p] is not None and "N{}".format(p) not in GWAS_d[p].columns:
+            raise IOError("--n_min is specified but n column is not present in sumstats {}".format(p+1))
 
         # convert Alleles to uppercase
         for col in [col+str(p) for col in ['A1','A2']]:
