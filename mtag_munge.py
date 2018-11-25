@@ -241,8 +241,8 @@ default_cnames = {
 describe_cname = {
     'SNP': 'Variant ID (e.g., rs number)',
     'P': 'p-Value',
-    'A1': 'Allele 1, interpreted as ref allele for signed sumstat.',
-    'A2': 'Allele 2, interpreted as non-ref allele for signed sumstat.',
+    'A1': 'a1, interpreted as ref allele for signed sumstat.',
+    'A2': 'a2, interpreted as non-ref allele for signed sumstat.',
     'N': 'Sample size',
     'N_CAS': 'Number of cases',
     'N_CON': 'Number of controls',

@@ -562,7 +562,7 @@ def extract_gwas_sumstats(DATA, args, t0):
 
     Ns = Ns[N_passFilter]
     DATA = DATA[N_passFilter].reset_index()
-
+    N_raw = np.copy(Ns)
     f_cols = ['FRQ'+ str(p) for p in t0]
     Fs = DATA.filter(items=f_cols).as_matrix()
 
@@ -596,7 +596,7 @@ def extract_gwas_sumstats(DATA, args, t0):
     # results_template[args.chr_name] = results_template[args.chr_name].astype(int)
     # results_template[args.bpos_name] = results_template[args.bpos_name].astype(int)
 
-    return Zs, Ns, Fs, results_template, DATA
+    return Zs, Ns, Fs, results_template, DATA, N_raw
 
 ###########################################
 ## OMEGA ESTIMATION
@@ -1426,9 +1426,9 @@ def mtag(args):
     if args.meta_format:
         save_mtag_results_U(args, comb_df)
     else:
-        save_mtag_results(args, res_temp, Zs, Ns, Fs, mtag_betas, mtag_se, mtag_factor)
+        save_mtag_results(args, res_temp, Zs, N_raw, Fs, mtag_betas, mtag_se, mtag_factor)
 
-    write_summary(args,Zs,Ns,Fs,mtag_betas,mtag_se,mtag_factor)
+    write_summary(args, Zs, N_raw, Fs, mtag_betas, mtag_se, mtag_factor)
 
     if args.fdr:
         fdr(args, Ns, Zs)
