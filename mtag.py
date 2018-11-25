@@ -349,9 +349,12 @@ def load_and_merge_data(args):
 
         GWAS_int['strand_ambig'] = (GWAS_int['A1'+str(0)].str.upper() + GWAS_int['A2'+str(0)].str.upper()).isin(STRAND_AMBIGUOUS_SET)
 
-        M_0 = len(GWAS_int)
-        GWAS_int = GWAS_int[np.logical_not(GWAS_int['strand_ambig'])]
-        logging.info('Dropped {} SNPs due to strand ambiguity, {} SNPs remain in intersection after merging trait{}'.format(M_0-len(GWAS_int),len(GWAS_int), p+1))
+        if not args.incld_ambig_snps:
+            M_0 = len(GWAS_int)
+            GWAS_int = GWAS_int[np.logical_not(GWAS_int['strand_ambig'])]
+            logging.info('Dropped {} SNPs due to strand ambiguity, {} SNPs remain in intersection after merging trait{}'.format(M_0-len(GWAS_int),len(GWAS_int), p+1))
+        else:
+            logging.info('{} strand ambiguous SNPs in Trait {} are included.'.format(np.sum(GWAS_int['strand_ambig']), p+1))
 
     logging.info('... Merge of GWAS summary statistics complete. Number of SNPs:\t {}'.format(len(GWAS_int)))
 
@@ -1315,8 +1318,7 @@ def mtag(args):
     # 3. Extract core information from combined GWAS data
     Zs , Ns ,Fs, res_temp, DATA = extract_gwas_sumstats(DATA,args,list(np.arange(args.P)))
 
-    if not args.drop_ambig_snps:
-        logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded due to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
+    logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded due to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
     not_SA = np.logical_not(np.array(DATA['strand_ambig']))
 
     # 4. Estimate Sigma
@@ -1468,7 +1470,7 @@ filter_opts.add_argument('--maf_min', default='0.01', type=str, action='store', 
 filter_opts.add_argument('--n_min', default=None, type=str, action='store', help="set the minimum threshold for SNP sample size in input data. Default is 2/3*(90th percentile). Any SNP that does not pass this threshold for all of the GWAS input statistics will not be included in MTAG.")
 filter_opts.add_argument('--n_max', default=None, type=str, action='store', help="set the maximum threshold for SNP sample size in input data. Not used by default. Any SNP that does not pass this threshold for any of the GWAS input statistics will not be included in MTAG.")
 filter_opts.add_argument("--info_min", default=None,type=str, help="Minimim info score for filtering SNPs for MTAG.")
-filter_opts.add_argument("--drop_ambig_snps", default=False, action="store_true", help="Drop strand ambiguous SNPs when performing MTAG (they are already not used to estimate Omega or Sigma.")
+filter_opts.add_argument("--incld_ambig_snps", default=False, action="store_true", help="Include strand ambiguous SNPs when performing MTAG. by default, they are not used to estimate Omega or Sigma.")
 filter_opts.add_argument("--no_allele_flipping", default=False, action="store_true", help="Prevents flipping the effect sizes of summary statistics when the effect and non-effect alleles are reversed (reletive the first summary statistics file.")
 
 special_cases = parser.add_argument_group(title="Special Cases",description="These options deal with notable special cases of MTAG that yield improvements in runtime. However, they should be used with caution as they will yield non-optimal results if the assumptions implicit in each option are violated.")
