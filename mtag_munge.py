@@ -656,6 +656,8 @@ iformat.add_argument('--ignore', default=None, type=str,
                     help='Comma-separated list of column names to ignore.')
 iformat.add_argument('--a1-inc', default=False, action='store_true',
                     help='A1 is the increasing allele.')
+iformat.add_argument('--n-value', default=None, type=int, 
+                    help='Integer valued sample size to apply uniformly across SNPs.')
 
 ## filters
 filters = parser.add_argument_group(title="Data Filters", description="Options to apply data filters to summary statistics.")
@@ -810,7 +812,7 @@ def munge_sumstats(args, write_out=True, new_log=True):
             if numc > 1:
                 raise ValueError('Found {num} different {C} columns'.format(C=head,num=str(numc)))
 
-        if (not args.N) and (not (args.N_cas and args.N_con)) and ('N' not in cname_translation.values()) and\
+        if (not args.n_value) and (not args.N) and (not (args.N_cas and args.N_con)) and ('N' not in cname_translation.values()) and\
                 (any(x not in cname_translation.values() for x in ['N_CAS', 'N_CON'])):
             raise ValueError('Could not determine N.')
         if ('N' in cname_translation.values() or all(x in cname_translation.values() for x in ['N_CAS', 'N_CON']))\
@@ -862,7 +864,9 @@ def munge_sumstats(args, write_out=True, new_log=True):
         dat = parse_dat(dat_gen, cname_translation, merge_alleles, args)
         if len(dat) == 0:
             raise ValueError('After applying filters, no SNPs remain.')
-
+        if args.n_value is not None:
+            logging.info('Adding uniform sample size {} to summary statistics.'.format(int(args.n_value)))
+            dat['N'] = int(args.n_value)
         old = len(dat)
         dat = dat.drop_duplicates(subset='SNP').reset_index(drop=True)
         new = len(dat)

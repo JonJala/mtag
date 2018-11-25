@@ -145,13 +145,14 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
     a1_munge = None if args.a1_name == "a1" else args.a1_name
     a2_munge = None if args.a2_name == "a2" else args.a2_name
     eaf_munge = None if args.eaf_name == "freq" else args.eaf_name
+    p_munge = None if args.p_name == "p" else args.p_name
     beta_munge = args.beta_name if args.beta_name is not None else 'beta'
     z_munge = args.z_name if args.z_name is not None else 'z'
 
     if args.use_beta_se:
-        argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=a1_munge, a2=a2_munge, p=None,frq=eaf_munge,signed_sumstats=beta_munge+',0', keep_beta=True, keep_se=True, info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
+        argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=a1_munge, a2=a2_munge, p=p_munge, frq=eaf_munge,signed_sumstats=beta_munge+',0', keep_beta=True, keep_se=True, info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols), n_value=args.n_list[p])
     else:
-        argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=a1_munge, a2=a2_munge, p=None,frq=eaf_munge,signed_sumstats=z_munge+',0', keep_beta=False, keep_se=False, info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols))
+        argnames = Namespace(sumstats=None,N=None,N_cas=None,N_con=None,out=out,maf_min=args.maf_min_list[p], info_min =args.info_min_list[p],daner=False, no_alleles=False, merge_alleles=merge_alleles,n_min=args.n_min_list[p],chunksize=args.chunksize, snp=args.snp_name,N_col=args.n_name, N_cas_col=None, N_con_col = None, a1=a1_munge, a2=a2_munge, p=p_munge,frq=eaf_munge,signed_sumstats=z_munge+',0', keep_beta=False, keep_se=False, info=None,info_list=None, nstudy=None,nstudy_min=None,ignore=ignore_list,a1_inc=False, keep_maf=True, daner_n=False, keep_str_ambig=True, input_datgen=GWAS_dat_gen, cnames=list(original_cols), n_value=args.n_list[p])
 
     logging.info(borderline)
     logging.info('Munging Trait {}  {}'.format(p+1,borderline[:-17]))
@@ -159,7 +160,11 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
 
     munged_results = munge_sumstats.munge_sumstats(argnames, write_out=False, new_log=False)
     GWAS_df = GWAS_df.merge(munged_results, how='inner',left_on =args.snp_name,right_on='SNP',suffixes=('','_ss'))
-    GWAS_df = GWAS_df[original_cols]
+    
+    if args.n_value is not None:
+        GWAS_df = GWAS_df[list(original_cols) + ["N"]]
+    else:
+        GWAS_df = GWAS_df[original_cols]
 
     logging.info(borderline)
     logging.info('Munging of Trait {} complete. SNPs remaining:\t {}'.format(p+1, len(GWAS_df)))
@@ -207,7 +212,8 @@ def set_default_cnames(args):
             args.chr_name: 'CHR',
             args.bpos_name: 'BP',
             args.a1_name: 'A1',
-            args.a2_name: 'A2'}
+            args.a2_name: 'A2',
+            args.p_name: "P"}
 
 def load_and_merge_data(args):
     '''
@@ -241,6 +247,10 @@ def load_and_merge_data(args):
             args.info_min_list = args.info_min_list * P
     else:
         args.info_min_list = [None]*P
+
+    if args.n_value is not None:
+        args.n_list = [int(x) for x in args.n_value.split(',')]
+        assert P == len(args.n_list), "Mismatch of length of --n_value and number of summary statistics."
 
     #=====================
     # Reading sumstats
@@ -1453,12 +1463,14 @@ input_formatting.add_argument("--z_name", default="z", help="The common name of 
 input_formatting.add_argument("--beta_name", default="beta", help="The common name of the column of beta coefficients (effect sizes) across all input files. Must be specified with se. If specified, it will override the z-score column.")
 input_formatting.add_argument("--se_name", default="se", help="The common name of the column of standard errors of the betas across all input files. Default is the lowercase letter z. Must be specified with --beta_name.")
 input_formatting.add_argument("--n_name", default="n", help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is the lowercase letter  n.")
+input_formatting.add_argument("--n_value", default=None, metavar="N1, N2,...", type=str, help="Comma separated sample size values for each GWAS summary statistics files. This option is useful for GWAS input that does not include an N column, e.g. BOLT-LMM.")
 input_formatting.add_argument('--eaf_name',default="freq", help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is \"freq\".")
 input_formatting.add_argument('--no_chr_data',default=False,action='store_true', help="If used, will not use information related to the chromosome and base pair position columns. Use only it chromosome/base pair positional data is missing, but are certain that the snpids correctly identify the SNPs across traits.")
 input_formatting.add_argument('--chr_name',default='chr', type=str, help="Name of the column containing the chromosome of each SNP in the GWAS input. Default is \"chr\".")
 input_formatting.add_argument('--bpos_name',default='bpos', type=str, help="Name of the column containing the base pair of each SNP in the GWAS input. Default is \"bpos\".")
 input_formatting.add_argument('--a1_name',default='a1', type=str, help="Name of the column containing the effect allele of each SNP in the GWAS input. Default is \"a1\".")
 input_formatting.add_argument('--a2_name',default='a2', type=str, help="Name of the column containing the non-effect allele of each SNP in the GWAS input. Default is \"a2\".")
+input_formatting.add_argument('--p_name',default='p', type=str, help="Name of the column containing the p-value of the effect size in the GWAS input. Default is \"p\".")
 
 filter_opts = parser.add_argument_group(title="Filter Options", description="The input summary statistics files can be filtered using the options below. Note that there is some default filtering according to sample size and allele frequency, following the recommendations we make in the corresponding paper. All of these column-based options allow a list of values to be passed of the same length as the number of traits ")
 filter_opts.add_argument("--include",default=None, metavar="SNPLIST1,SNPLIST2,..", type=str, help="Restricts MTAG analysis to the union of snps in the list of  snplists provided. The header line must match the SNP index that will be used to merge the GWAS input files.")
