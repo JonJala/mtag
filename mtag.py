@@ -1316,7 +1316,7 @@ def mtag(args):
     DATA_U, DATA, args = load_and_merge_data(args)
 
     # 3. Extract core information from combined GWAS data
-    Zs , Ns ,Fs, res_temp, DATA = extract_gwas_sumstats(DATA,args,list(np.arange(args.P)))
+    Zs , Ns ,Fs, res_temp, DATA, N_raw = extract_gwas_sumstats(DATA,args,list(np.arange(args.P)))
 
     logging.info('Using {} SNPs to estimate Omega ({} SNPs excluded due to strand ambiguity)'.format(len(Zs)- np.sum(DATA['strand_ambig']), np.sum(DATA['strand_ambig'])))
     not_SA = np.logical_not(np.array(DATA['strand_ambig']))
