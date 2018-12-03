@@ -597,7 +597,7 @@ def extract_gwas_sumstats(DATA, args, t0):
     results_template = DATA[['SNP']].copy()
 
     if args.no_chr_data:
-        for col in [args.a1_name, args.a2_name]:
+        for col in ['A1','A2']:
            results_template.loc[:,col] = DATA[col+str(t0[0])]
     else:
         for col in ['CHR','BP','A1','A2']:
