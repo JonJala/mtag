@@ -882,6 +882,9 @@ def save_mtag_results(args,results_template,Zs,Ns,Fs,mtag_betas,mtag_se,mtag_fac
             out_df.to_csv(out_path,sep='\t', index=False)
 
 def write_summary(args,Zs,Ns,Fs,mtag_betas,mtag_se,mtag_factor):
+    '''
+    Note that in the current version, Ns is the full dataframe under the meta_format mode.
+    '''
 
     _,P = mtag_factor.shape
 
@@ -918,9 +921,17 @@ def write_summary(args,Zs,Ns,Fs,mtag_betas,mtag_se,mtag_factor):
     for p in range(P):
 
         summary_df.loc[p+1,'Trait'] = input_phenotypes[p]
-        summary_df.loc[p+1, 'N (max)'] = np.max(Ns[:,p])
-        summary_df.loc[p+1, 'N (mean)'] = np.mean(Ns[:,p])
         summary_df.loc[p+1, '# SNPs used'] = int(len(Zs[:,p]))
+
+        if args.meta_format:
+            comb_df_extract = [Ns[y][x] for y in Ns.keys() for x in Ns[y].keys() if x==p]
+            out_df = pd.concat(comb_df_extract, axis=0)
+            summary_df.loc[p+1, 'N (max)'] = np.max(out_df[args.n_name])
+            summary_df.loc[p+1, 'N (mean)'] = np.mean(out_df[args.n_name])
+        else:
+            summary_df.loc[p+1, 'N (max)'] = np.max(Ns[:,p])
+            summary_df.loc[p+1, 'N (mean)'] = np.mean(Ns[:,p])
+
         summary_df.loc[p+1, 'GWAS mean chi^2'] = np.mean(np.square(Zs[:,p])) / args.sigma_hat[p,p]
         Z_mtag = mtag_betas[:,p]/mtag_se[:,p]
         summary_df.loc[p+1, 'MTAG mean chi^2'] = np.mean(np.square(Z_mtag))
@@ -951,9 +962,7 @@ def save_mtag_results_U(args, comb_df):
         comb_df_extract = [comb_df[y][x] for y in comb_df.keys() for x in comb_df[y].keys() if x==p]
         out_df = pd.concat(comb_df_extract, axis=0)
         M_0 = out_df.shape[0]
-        #df_orig_cols = df.columns
-        #df = df.merge(GWAS_d[p], how='inner', on=args.snp_name)
-        #df = df.loc[:,df_orig_cols]
+
         if M_0 - out_df.shape[0] != 0:
             raise ValueError('--meta_format option was not implemented correctly.')
 
@@ -1398,7 +1407,7 @@ def mtag(args):
             # No need to flip SNPs if they are present in some but not all sumstats? 
 
             # extract gwas sumstats for each combo
-            Zs, Ns, Fs, resid_cols, _ = extract_gwas_sumstats(snp_df, args, tl)
+            Zs, Ns, Fs, resid_cols, _, N_raw = extract_gwas_sumstats(snp_df, args, tl)
 
             # perform MTAG on each type of SNPs
             omega_sub, sigma_sub = args.omega_hat[tl[:,None],tl[None,:]], args.sigma_hat[tl[:,None],tl[None,:]]
@@ -1415,7 +1424,7 @@ def mtag(args):
             for p,t in enumerate(tl):
                 comb_df[sub_list[s][0]][t] = resid_cols.copy()
                 comb_df[sub_list[s][0]][t][args.z_name] = Zs[:,p]
-                comb_df[sub_list[s][0]][t][args.n_name] = Ns[:,p]
+                comb_df[sub_list[s][0]][t][args.n_name] = N_raw[:,p]
                 comb_df[sub_list[s][0]][t][args.eaf_name] = Fs[:,p]
 
                 if args.std_betas:
@@ -1436,10 +1445,11 @@ def mtag(args):
     #7. Save sumstats to files
     if args.meta_format:
         save_mtag_results_U(args, comb_df)
+        write_summary(args, Zs, comb_df, Fs, mtag_betas, mtag_se, mtag_factor)
+
     else:
         save_mtag_results(args, res_temp, Zs, N_raw, Fs, mtag_betas, mtag_se, mtag_factor)
-
-    write_summary(args, Zs, N_raw, Fs, mtag_betas, mtag_se, mtag_factor)
+        write_summary(args, Zs, N_raw, Fs, mtag_betas, mtag_se, mtag_factor)
 
     if args.fdr:
         fdr(args, Ns, Zs)
