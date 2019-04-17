@@ -545,9 +545,9 @@ def _print_gencor(args, log, rghat, ref_ld_cnames, i1,i2, rg_paths, print_hsq1):
 
 def _merge_sumstats_sumstats(args, sumstats1, sumstats2, log):
     '''Merge two sets of summary statistics.'''
-    sumstats1.rename(columns={'N': 'N1', 'Z': 'Z1'}, inplace=True)
+    sumstats1.rename(columns={'N': 'N1', 'Z': 'Z1', 'FRQ': 'FRQ1'}, inplace=True)
     sumstats2.rename(
-        columns={'A1': 'A1x', 'A2': 'A2x', 'N': 'N2', 'Z': 'Z2'}, inplace=True)
+        columns={'A1': 'A1x', 'A2': 'A2x', 'N': 'N2', 'Z': 'Z2', 'FRQ': 'FRQ2'}, inplace=True)
     x = _merge_and_log(sumstats1, sumstats2, 'summary statistics', log)
     return x
 
@@ -560,9 +560,9 @@ def _filter_alleles(alleles):
 
 def _align_alleles(z, alleles):
     '''Align Z1 and Z2 to same choice of ref allele (allowing for strand flip).'''
-    logging.info(alleles[:100])
-    logging.info(FLIP_ALLELES)
-    logging.info('XXX Number of bad alleles: {}'.format(len(alleles) - len(np.in1d(alleles, FLIP_ALLELES)) ))
+    # logging.info(alleles[:100])
+    # logging.info(FLIP_ALLELES)
+    # logging.info('XXX Number of bad alleles: {}'.format(len(alleles) - len(np.in1d(alleles, FLIP_ALLELES)) ))
 
     z *= (-1) ** alleles.apply(lambda y: FLIP_ALLELES[y])
 
