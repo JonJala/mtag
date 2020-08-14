@@ -348,7 +348,7 @@ def filter_frq(frq, args):
     '''
     Filter on MAF. Remove MAF < args.maf_min and out-of-bounds MAF.
     '''
-    jj = (frq < 0) | (frq > 1)
+    jj = (frq <= 0) | (frq => 1)
     bad_frq = jj.sum()
     if bad_frq > 0:
         msg = 'WARNING: {N} SNPs had FRQ outside of [0,1]. The FRQ column may be mislabeled.'
