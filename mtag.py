@@ -51,6 +51,9 @@ pd.set_option('colheader_justify', 'left')
 np.set_printoptions(linewidth=800)
 np.set_printoptions(precision=3)
 
+DEFAULT_MEDIAN_Z_THRESHOLD = 0.1
+
+
 ## General helper functions
 def safely_create_folder(folder_path):
     try:
@@ -1327,6 +1330,9 @@ def mtag(args):
     logging.info(header_sub)
     logging.info("Beginning MTAG analysis...")
 
+    if args.median_z_cutoff != DEFAULT_MEDIAN_Z_THRESHOLD:
+        logging.info("WARNING: Using non-default median Z score cutoff for QC.")
+
     # check for beta/se vs z/n option
     if args.use_beta_se:
         logging.info('MTAG will use the provided BETA/SE columns for analyses.')
@@ -1531,7 +1537,7 @@ misc.add_argument('--numerical_omega', default=False, action='store_true', help=
 misc.add_argument('--verbose', default=False, action='store_true', help='When used, will include output from running ldsc scripts as well additional information (such as optimization routine information.')
 misc.add_argument('--chunksize', default=1e7, type=int, help='Chunksize for reading in data.')
 misc.add_argument('--stream_stdout', default=False, action='store_true', help='Will streat mtag processing on console in addition to writing to log file.')
-misc.add_argument('--median_z_cutoff', default=0.1, type=float, help='Maximum allowed median Z-score for sumstats during input QC')
+misc.add_argument('--median_z_cutoff', default=DEFAULT_MEDIAN_Z_THRESHOLD, type=float, help='Maximum allowed median Z-score for sumstats during input QC')
 
 if __name__ == '__main__':
     start_t = time.time()
