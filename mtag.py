@@ -159,6 +159,7 @@ def _perform_munge(args, GWAS_df, GWAS_dat_gen,p):
     logging.info('Munging Trait {}  {}'.format(p+1,borderline[:-17]))
     logging.info(borderline)
 
+    argnames.median_z_cutoff = args.median_z_cutoff
     munged_results = munge_sumstats.munge_sumstats(argnames, write_out=False, new_log=False)
     GWAS_df = GWAS_df.merge(munged_results, how='inner',left_on =args.snp_name,right_on='SNP',suffixes=('','_ss'))
     
@@ -1530,6 +1531,7 @@ misc.add_argument('--numerical_omega', default=False, action='store_true', help=
 misc.add_argument('--verbose', default=False, action='store_true', help='When used, will include output from running ldsc scripts as well additional information (such as optimization routine information.')
 misc.add_argument('--chunksize', default=1e7, type=int, help='Chunksize for reading in data.')
 misc.add_argument('--stream_stdout', default=False, action='store_true', help='Will streat mtag processing on console in addition to writing to log file.')
+misc.add_argument('--median_z_cutoff', default=0.1, type=float, help='Maximum allowed median Z-score for sumstats during input QC')
 
 if __name__ == '__main__':
     start_t = time.time()

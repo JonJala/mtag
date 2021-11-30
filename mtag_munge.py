@@ -878,7 +878,7 @@ def munge_sumstats(args, write_out=True, new_log=True):
         dat.rename(columns={'P': 'Z'}, inplace=True)
         if not args.a1_inc:
             logging.info(
-                check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, 0.1, sign_cname))
+                check_median(dat.SIGNED_SUMSTAT, signed_sumstat_null, args.median_z_cutoff, sign_cname))
             dat.Z *= (-1) ** (dat.SIGNED_SUMSTAT < signed_sumstat_null)
             #dat.drop('SIGNED_SUMSTAT', inplace=True, axis=1)
         # do this last so we don't have to worry about NA values in the rest of
