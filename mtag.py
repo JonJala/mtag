@@ -1542,6 +1542,8 @@ misc.add_argument('--median_z_cutoff', default=DEFAULT_MEDIAN_Z_THRESHOLD, type=
 if __name__ == '__main__':
     start_t = time.time()
     args = parser.parse_args()
+    if args.use_beta_se:
+        raise RuntimeError("Due to bugs in the beta-se code, this option has been temporarily removed from the MTAG software. Dec 2, 2021")
 
     if args.skip_mtag:
         # avoid overwriting the original mtag log file
