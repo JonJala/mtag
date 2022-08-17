@@ -948,7 +948,7 @@ def write_summary(args,Zs,Ns,Fs,mtag_betas,mtag_se,mtag_factor):
 
     final_summary = "\nSummary of MTAG results:\n"
     final_summary +="------------------------\n"
-    final_summary += str(summary_df.round(3))+'\n'
+    final_summary += summary_df.round(3).to_string()+'\n'
     final_summary += omega_out
     final_summary += sigma_out
     final_summary += weight_out
