@@ -675,6 +675,7 @@ filters.add_argument('--n-min', default=None, type=float,
                     help='Minimum N (sample size). Default is (90th percentile N) / 1.5')
 filters.add_argument('--chunksize', default=5e6, type=int,
                     help='Chunksize.')
+filters.add_argument('--median_z_cutoff', default=0.1, type=float, help='Maximum allowed median Z-score for sumstats during input QC')
 parser.add_argument('--keep-str-ambig', default=False, action='store_true',
                     help=argparse.SUPPRESS) # This options allows munge sumstats to retain strand ambiguous SNPS instead of dropping them.
 
