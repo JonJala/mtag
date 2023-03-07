@@ -1482,7 +1482,7 @@ input_formatting.add_argument("--beta_name", default="beta", help="The common na
 input_formatting.add_argument("--se_name", default="se", help="The common name of the column of standard errors of the betas across all input files. Default is lowercase se. Must be specified with --beta_name.")
 input_formatting.add_argument("--n_name", default="n", help="the common name of the column of sample sizes in the GWAS summary statistics files. Default is the lowercase letter  n.")
 input_formatting.add_argument("--n_value", default=None, metavar="N1, N2,...", type=str, help="Comma separated sample size values for each GWAS summary statistics files. This option is useful for GWAS input that does not include an N column, e.g. BOLT-LMM.")
-input_formatting.add_argument('--eaf_name',default="freq", help="The common name of the column of minor allele frequencies (MAF) in the GWAS input files. The default is \"freq\".")
+input_formatting.add_argument('--eaf_name',default="freq", help="The common name of the column of effect allele frequencies in the GWAS input files. The default is \"freq\".")
 input_formatting.add_argument('--no_chr_data',default=False,action='store_true', help="If used, will not use information related to the chromosome and base pair position columns. Use only it chromosome/base pair positional data is missing, but are certain that the snpids correctly identify the SNPs across traits.")
 input_formatting.add_argument('--chr_name',default='chr', type=str, help="Name of the column containing the chromosome of each SNP in the GWAS input. Default is \"chr\".")
 input_formatting.add_argument('--bpos_name',default='bpos', type=str, help="Name of the column containing the base pair of each SNP in the GWAS input. Default is \"bpos\".")
