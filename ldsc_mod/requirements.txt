@@ -3,4 +3,4 @@ bitarray==0.8.1
 nose==1.3.4
 numpy==1.11.1
 pandas==0.18.1
-scipy==0.18.0
+scipy==1.10.0
