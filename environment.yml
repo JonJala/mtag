@@ -1,10 +1,10 @@
 name: mtag
 channels:
 - bioconda
+- defaults
 dependencies:
-- argparse
 - joblib
-- python=2.7
+- python=2.7.15
 - bitarray=0.8
 - numpy>=1.13.1
 - pandas>=0.18.1
